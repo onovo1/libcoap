@@ -72,6 +72,12 @@ MEMB(pdu_storage, coap_pdu_t, COAP_PDU_MAXCNT);
 MEMB(pdu_buf_storage, coap_packetbuf_t, COAP_PDU_MAXCNT);
 MEMB(resource_storage, coap_resource_t, COAP_MAX_RESOURCES);
 MEMB(attribute_storage, coap_attr_t, COAP_MAX_ATTRIBUTES);
+MEMB(link_storage, coap_link_t, COAP_MAX_LINKS);
+MEMB(group_endpoint, coap_endpoints_t, COAP_MAX_GROUP_ENDPOINTS);
+MEMB(group_storage, coap_group_t, COAP_MAX_GROUP);
+MEMB(lifetime_storage, coap_lifetime_t, COAP_MAX_LIFETIME);
+MEMB(variables_storage, coap_variables_t, COAP_MAX_VARIABLES);
+MEMB(variables_block, coap_block1_t, COAP_MAX_BLOCK);
 
 static struct memb *
 get_container(coap_memory_tag_t type) {
@@ -82,6 +88,12 @@ get_container(coap_memory_tag_t type) {
   case COAP_PDU_BUF: return &pdu_buf_storage;
   case COAP_RESOURCE: return &resource_storage;
   case COAP_RESOURCEATTR: return &attribute_storage;
+  case COAP_RESOURCELINK: return &link_storage;
+  case COAP_GROUP: 	return &group_storage;
+  case COAP_LIFETIME: 	return &lifetime_storage;
+  case COAP_GROUP_ENDPOINT: return &group_endpoint;
+  case COAP_VARIABLES: return &variables_storage;
+  case COAP_BLOCK: return &variables_block;
   default:
     return &string_storage;
   }
@@ -96,6 +108,12 @@ coap_memory_init(void) {
   memb_init(&pdu_buf_storage);
   memb_init(&resource_storage);
   memb_init(&attribute_storage);
+  memb_init(&link_storage);
+  memb_init(&group_endpoint);
+  memb_init(&group_storage);
+  memb_init(&lifetime_storage);
+  memb_init(&variables_storage);
+  memb_init(&variables_block);
 }
 
 void *

@@ -18,6 +18,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <string.h>
+#include <netinet/in.h>
 
 #ifdef WITH_LWIP
 #include <lwip/ip_addr.h>

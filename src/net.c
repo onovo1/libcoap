@@ -41,6 +41,8 @@
 #include "str.h"
 #include "async.h"
 #include "resource.h"
+#include "group.h"
+#include "lifetime.h"
 #include "option.h"
 #include "encode.h"
 #include "block.h"
@@ -429,6 +431,10 @@ coap_free_context(coap_context_t *context) {
 #endif
 
   coap_delete_all_resources(context);
+
+  coap_delete_all_groups(context);
+
+  coap_delete_lifetime_list(context);
 
   coap_free_endpoint(context->endpoint);
 #ifndef WITH_CONTIKI
@@ -1130,10 +1136,18 @@ get_wkc_len(coap_context_t *context, coap_opt_t *query_filter) {
   unsigned char buf[1];
   size_t len = 0;
 
-  if (coap_print_wellknown(context, buf, &len, UINT_MAX, query_filter)
-      & COAP_PRINT_STATUS_ERROR) {
-    warn("cannot determine length of /.well-known/core\n");
-    return 0;
+  if (context->init_mod_coap_rd){
+    if (coap_print_wellknown_rd(context, buf, &len, UINT_MAX, query_filter)
+        & COAP_PRINT_STATUS_ERROR) {
+      warn("cannot determine length of /.well-known/core\n");
+      return 0;
+    }
+  } else {
+    if (coap_print_wellknown(context, buf, &len, UINT_MAX, query_filter)
+        & COAP_PRINT_STATUS_ERROR) {
+      warn("cannot determine length of /.well-known/core\n");
+      return 0;
+    }
   }
 
   debug("get_wkc_len: coap_print_wellknown() returned %zu\n", len);
@@ -1176,8 +1190,8 @@ coap_wellknown_response(coap_context_t *context, coap_pdu_t *request) {
   /* The value of some resources is undefined and get_wkc_len will return 0.*/
   if (wkc_len == 0){
     debug("coap_wellknown_response: undefined resource\n");
-    /* set error code 4.00 Bad Request*/
-    resp->hdr->code = COAP_RESPONSE_CODE(400);
+    /* set error code 4.04 Not Found*/
+    resp->hdr->code = COAP_RESPONSE_CODE(404);
     resp->length = sizeof(coap_hdr_t) + resp->hdr->token_length;
     return resp;
   }
@@ -1251,7 +1265,12 @@ coap_wellknown_response(coap_context_t *context, coap_pdu_t *request) {
   resp->length++;
   len = need_block2 ? SZX_TO_BYTES(block.szx) : resp->max_size - resp->length;
 
-  result = coap_print_wellknown(context, resp->data, &len, offset, query_filter);
+  if (context->init_mod_coap_rd){
+    result = coap_print_wellknown_rd(context, resp->data, &len, offset, query_filter);
+  } else {
+    result = coap_print_wellknown(context, resp->data, &len, offset, query_filter); 
+  }
+
   if ((result & COAP_PRINT_STATUS_ERROR) != 0) {
     debug("coap_print_wellknown failed\n");
     goto error;
@@ -1303,7 +1322,7 @@ coap_cancel(coap_context_t *context, const coap_queue_t *sent) {
 /**
  * Checks for No-Response option in given @p request and
  * returns @c 1 if @p response should be suppressed
- * according to draft-tcs-coap-no-response-option-11.txt.
+ * according to draft-tcs-coap-no-response-option-14.txt.
  * 
  * The value of the No-Response option is encoded as
  * follows:
@@ -1354,19 +1373,23 @@ no_response(coap_pdu_t *request, coap_pdu_t *response) {
 static void
 handle_request(coap_context_t *context, coap_queue_t *node) {      
   coap_method_handler_t h = NULL;
+  coap_method_group_handler_t hg = NULL;
   coap_pdu_t *response = NULL;
   coap_opt_filter_t opt_filter;
   coap_resource_t *resource;
+  coap_group_t *group;
   coap_key_t key;
 
   coap_option_filter_clear(opt_filter);
-  
+
   /* try to find the resource from the request URI */
   coap_hash_request_uri(node->pdu, key);
   resource = coap_get_resource_from_key(context, key);
-  
-  if (!resource) {
-    /* The resource was not found. Check if the request URI happens to
+
+  group = coap_get_group_from_key(context, key); 
+
+  if ((!resource) && (!group)) {
+    /* The resource or group was not found. Check if the request URI happens to
      * be the well-known URI. In that case, we generate a default
      * response, otherwise, we return 4.04 */
 
@@ -1392,55 +1415,67 @@ handle_request(coap_context_t *context, coap_queue_t *node) {
       debug("unhandled request for unknown resource 0x%02x%02x%02x%02x\r\n",
 	    key[0], key[1], key[2], key[3]);
 
-	response = coap_new_error_response(node->pdu, COAP_RESPONSE_CODE(405), 
-					   opt_filter);
+      response = coap_new_error_response(node->pdu, COAP_RESPONSE_CODE(405), 
+					 opt_filter);
     }
       
     if (response && !no_response(node->pdu, response) && coap_send(context, &node->local_if, 
-			      &node->remote, response) == COAP_INVALID_TID) {
+			         &node->remote, response) == COAP_INVALID_TID) {
       warn("cannot send response for transaction %u\n", node->id);
     }
     coap_delete_pdu(response);
 
     return;
   }
-  
-  /* the resource was found, check if there is a registered handler */
-  if ((size_t)node->pdu->hdr->code - 1 <
-      sizeof(resource->handler)/sizeof(coap_method_handler_t))
-    h = resource->handler[node->pdu->hdr->code - 1];
-  
-  if (h) {
+
+  if (resource) {
+    /* the resource was found, check if there is a registered handler */
+    if ((size_t)node->pdu->hdr->code - 1 <
+        sizeof(resource->handler)/sizeof(coap_method_handler_t)){
+      h = resource->handler[node->pdu->hdr->code - 1];
+      hg = NULL;
+    }
+  } else {
+    /* the group was found, check if there is a registered handler */
+
+printf("print size of code %i\n", (size_t)node->pdu->hdr->code - 1);
+    if (sizeof(group->handler)/sizeof(coap_method_group_handler_t)){
+      hg = group->handler[0];
+      h = NULL;
+    }
+  }
+
+  if ((h) || (hg)) {
     debug("call custom handler for resource 0x%02x%02x%02x%02x\n", 
 	  key[0], key[1], key[2], key[3]);
     response = coap_pdu_init(node->pdu->hdr->type == COAP_MESSAGE_CON 
-			     ? COAP_MESSAGE_ACK
+  			     ? COAP_MESSAGE_ACK
 			     : COAP_MESSAGE_NON,
 			     0, node->pdu->hdr->id, COAP_MAX_PDU_SIZE);
     
     /* Implementation detail: coap_add_token() immediately returns 0
        if response == NULL */
     if (coap_add_token(response, node->pdu->hdr->token_length,
-		       node->pdu->hdr->token)) {
+	  	       node->pdu->hdr->token)) {
       str token = { node->pdu->hdr->token_length, node->pdu->hdr->token };
       coap_opt_iterator_t opt_iter;
       coap_opt_t *observe = NULL;
       int observe_action = COAP_OBSERVE_CANCEL;
 
       /* check for Observe option */
-      if (resource->observable) {
+      if (h && resource->observable) {
 	observe = coap_check_option(node->pdu, COAP_OPTION_OBSERVE, &opt_iter);
-	if (observe) {
+  	if (observe) {
 	  observe_action =
 	    coap_decode_var_bytes(coap_opt_value(observe),
-				  coap_opt_length(observe));
+		  		  coap_opt_length(observe));
 	 
 	  if ((observe_action & COAP_OBSERVE_CANCEL) == 0) {
 	    coap_subscription_t *subscription;
 
 	    coap_log(LOG_DEBUG, "create new subscription\n");
 	    subscription = coap_add_observer(resource, &node->local_if, 
-					     &node->remote, &token);
+		  			       &node->remote, &token);
 	    if (subscription) {
 	      coap_touch_observer(context, &node->remote, &token);
 	    }
@@ -1451,11 +1486,19 @@ handle_request(coap_context_t *context, coap_queue_t *node) {
 	}
       }
 
-      h(context, resource, &node->local_if, &node->remote,
-	node->pdu, &token, response);
+      if (h){
+        /* register handler for a resource was found */
+        h(context, resource, &node->local_if, &node->remote,
+	  node->pdu, &token, response);
+      } else {
+        /* register handler for a group was found */
+        hg(context, group, &node->local_if, &node->remote,
+	  node->pdu, &token, response);
+      }
 
       if (!no_response(node->pdu, response)) {
-        if (observe && (COAP_RESPONSE_CLASS(response->hdr->code) > 2)) {
+        if (h && observe && ((COAP_RESPONSE_CLASS(response->hdr->code) > 2)
+            || ((observe_action & COAP_OBSERVE_CANCEL) != 0))) {
           coap_log(LOG_DEBUG, "removed observer\n");
           coap_delete_observer(resource,  &node->remote, &token);
         }
@@ -1465,8 +1508,8 @@ handle_request(coap_context_t *context, coap_queue_t *node) {
        * this is an empty ACK with a token, which is a malformed
        * PDU */
       if ((response->hdr->type == COAP_MESSAGE_ACK)
-	  && (response->hdr->code == 0)) {
-	/* Remove token from otherwise-empty acknowledgment PDU */
+  	  && (response->hdr->code == 0)) {
+ 	/* Remove token from otherwise-empty acknowledgment PDU */
 	response->hdr->token_length = 0;
 	response->length = sizeof(coap_hdr_t);
       }
@@ -1476,12 +1519,12 @@ handle_request(coap_context_t *context, coap_queue_t *node) {
 	   && !coap_mcast_interface(&node->local_if))) {
 
 	if (coap_send(context, &node->local_if, 
-		      &node->remote, response) == COAP_INVALID_TID) {
+	 	      &node->remote, response) == COAP_INVALID_TID) {
 	  debug("cannot send response for message %d\n", node->pdu->hdr->id);
-	  }
+	}
       }
-      }
-      coap_delete_pdu(response);
+    }
+    coap_delete_pdu(response);
     } else {
       warn("cannot generate response\r\n");
     }
@@ -1744,7 +1787,7 @@ static void coap_retransmittimer_restart(coap_context_t *ctx)
 
 	if (ctx->timer_configured)
 	{
-		printf("clearing\n");
+		debug("clearing\n");
 		sys_untimeout(coap_retransmittimer_execute, (void*)ctx);
 		ctx->timer_configured = 0;
 	}
@@ -1769,7 +1812,7 @@ static void coap_retransmittimer_restart(coap_context_t *ctx)
 			delay = 0;
 		}
 
-		printf("scheduling for %d ticks\n", delay);
+		debug("scheduling for %d ticks\n", delay);
 		sys_timeout(delay, coap_retransmittimer_execute, (void*)ctx);
 		ctx->timer_configured = 1;
 	}

@@ -22,6 +22,25 @@
  * resource type. */
 #define COAP_MAX_ATTRIBUTES 4
 
+/** Number of EndPoint Links that can be handled to carry the collection 
+ * of links of an endpoint. */
+#define COAP_MAX_LINKS 2
+
+/** Number of groups that can be handled by a CoAP server */
+#define COAP_MAX_GROUP 3
+
+/** Number of lifetime nodes that can be handled by a CoAP server */
+#define COAP_MAX_LIFETIME 3
+
+/** Number of EndPoints that can be handled by a group. */
+#define COAP_MAX_GROUP_ENDPOINTS 4
+
+/** Number of Variables structures that can be handled by a resource directory server. */
+#define COAP_MAX_VARIABLES 1
+
+/** Number of Block structures that can be handled by a resource directory server. */
+#define COAP_BLOCK 4
+
 /** 
  * Number of PDUs that can be stored simultaneously. This number
  * includes both, the PDUs stored for retransmission as well as the

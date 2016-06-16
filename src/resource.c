@@ -64,50 +64,12 @@ coap_free_subscription(coap_subscription_t *subscription) {
 
 #define min(a,b) ((a) < (b) ? (a) : (b))
 
-/* Helper functions for conditional output of character sequences into
- * a given buffer. The first Offset characters are skipped.
- */
-
-/**
- * Adds Char to Buf if Offset is zero. Otherwise, Char is not written
- * and Offset is decremented.
- */
-#define PRINT_WITH_OFFSET(Buf,Offset,Char)		\
-  if ((Offset) == 0) {					\
-    (*(Buf)++) = (Char);				\
-  } else {						\
-    (Offset)--;						\
-  }							\
-
-/**
- * Adds Char to Buf if Offset is zero and Buf is less than Bufend.
- */
-#define PRINT_COND_WITH_OFFSET(Buf,Bufend,Offset,Char,Result) {		\
-    if ((Buf) < (Bufend)) {						\
-      PRINT_WITH_OFFSET(Buf,Offset,Char);				\
-    }									\
-    (Result)++;								\
-  }
-
-/**
- * Copies at most Length characters of Str to Buf. The first Offset
- * characters are skipped. Output may be truncated to Bufend - Buf
- * characters.
- */
-#define COPY_COND_WITH_OFFSET(Buf,Bufend,Offset,Str,Length,Result) {	\
-    size_t i;								\
-    for (i = 0; i < (Length); i++) {					\
-      PRINT_COND_WITH_OFFSET((Buf), (Bufend), (Offset), (Str)[i], (Result)); \
-    }									\
-  }
- 
-static int
-match(const str *text, const str *pattern, int match_prefix, int match_substring) {
+int
+coap_match(const str *text, const str *pattern, int match_prefix, int match_substring) {
   assert(text); assert(pattern);
-  
+ 
   if (text->length < pattern->length)
     return 0;
-
   if (match_substring) {
     unsigned char *next_token = text->s;
     size_t remaining_length = text->length;
@@ -115,7 +77,6 @@ match(const str *text, const str *pattern, int match_prefix, int match_substring
       size_t token_length;
       unsigned char *token = next_token;
       next_token = memchr(token, ' ', remaining_length);
-
       if (next_token) {
         token_length = next_token - token;
         remaining_length -= (token_length + 1);
@@ -131,9 +92,186 @@ match(const str *text, const str *pattern, int match_prefix, int match_substring
     }
     return 0;
   }
-
   return (match_prefix || pattern->length == text->length) &&
     memcmp(text->s, pattern->s, pattern->length) == 0;
+}
+
+static coap_print_status_t
+coap_print_link(const coap_resource_t *resource, 
+		unsigned char *buf, size_t *len, size_t *offset) {
+  unsigned char *p = buf;
+  const unsigned char *bufend = buf + *len;
+  coap_attr_t *attr;
+  coap_print_status_t result = 0;
+  const size_t old_offset = *offset;
+  
+  *len = 0;
+  PRINT_COND_WITH_OFFSET(p, bufend, *offset, '<', *len);
+  PRINT_COND_WITH_OFFSET(p, bufend, *offset, '/', *len);
+
+  COPY_COND_WITH_OFFSET(p, bufend, *offset, 
+			resource->uri.s, resource->uri.length, *len);
+  
+  PRINT_COND_WITH_OFFSET(p, bufend, *offset, '>', *len);
+
+  LL_FOREACH(resource->link_attr, attr) {
+
+    PRINT_COND_WITH_OFFSET(p, bufend, *offset, ';', *len);
+
+    COPY_COND_WITH_OFFSET(p, bufend, *offset,
+			  attr->name.s, attr->name.length, *len);
+
+    if (attr->value.s) {
+      PRINT_COND_WITH_OFFSET(p, bufend, *offset, '=', *len);
+
+      COPY_COND_WITH_OFFSET(p, bufend, *offset,
+			    attr->value.s, attr->value.length, *len);
+    }
+
+  }
+  if (resource->observable) {
+    COPY_COND_WITH_OFFSET(p, bufend, *offset, ";obs", 4, *len);
+  }
+
+  result = p - buf;
+  if (result + old_offset - *offset < *len) {
+    result |= COAP_PRINT_STATUS_TRUNC;
+  }
+
+  return result;
+}
+
+/** 
+ * Discovers the information of the Resource Directory. The 
+ * resource directory implementation supports query filtering 
+ * for the rt parameter. The query filter might contain one or 
+ * more of the values "core.rd", "core.rd-lookup", 
+ * "core.rd-group" or "core.rd*".
+
+ * This function sets @p buflen to the number of bytes actually 
+ * written and returns * @c 1 on succes. On error, the value 
+ * in @p buflen is undefined and the return value will be @c 0.
+ * 
+ * @param context The context with the resource map.
+ * @param buf     The buffer to write the result.
+ * @param buflen  Must be initialized to the maximum length of @p buf and will be
+ *                set to the length of the well-known response on return.
+ * @param offset  The offset in bytes where the output shall start and is
+ *                shifted accordingly with the characters that have been
+ *                processed. This parameter is used to support the block 
+ *                option. 
+ * @param query_filter A filter query according to <a href="http://tools.ietf.org/html/draft-ietf-core-link-format-11#section-4.1">Link Format</a>
+ * 
+ * @return COAP_PRINT_STATUS_ERROR on error. Otherwise, the lower 28 bits are
+ *         set to the number of bytes that have actually been written to
+ *         @p buf. COAP_PRINT_STATUS_TRUNC is set when the output has been
+ *         truncated.
+ */
+#if defined(__GNUC__) && defined(WITHOUT_QUERY_FILTER)
+coap_print_status_t
+coap_print_wellknown_rd(coap_context_t *context, unsigned char *buf, size_t *buflen,
+		size_t offset,
+		coap_opt_t *query_filter __attribute__ ((unused))) {
+#else /* not a GCC */
+coap_print_status_t
+coap_print_wellknown_rd(coap_context_t *context, unsigned char *buf, size_t *buflen,
+		size_t offset, coap_opt_t *query_filter) {
+#endif /* GCC */
+  unsigned char *p = buf;
+  const unsigned char *bufend = buf + *buflen;
+  size_t left, written = 0;
+  coap_print_status_t result;
+  const size_t old_offset = offset;
+  int subsequent_resource = 0;
+#ifndef WITHOUT_QUERY_FILTER
+  str resource_param = { 0, NULL }, query_pattern = { 8, (unsigned char *)"core.rd*" };
+  int flags = 0; /* MATCH_PREFIX, MATCH_URI */
+#define MATCH_URI       0x01
+#define MATCH_PREFIX    0x02
+#endif /* WITHOUT_QUERY_FILTER */
+
+#ifndef WITHOUT_QUERY_FILTER
+  /* split query filter, if any */
+  if (query_filter) {
+
+    resource_param.s = coap_opt_value(query_filter);
+    while (resource_param.length < coap_opt_length(query_filter)
+	   && resource_param.s[resource_param.length] != '=')
+      resource_param.length++;
+
+    if (resource_param.length < coap_opt_length(query_filter)) {
+
+      if (resource_param.length == 2 && 
+            memcmp(resource_param.s, "rt", 2) == 0) {
+        flags |= MATCH_URI;
+      } else {
+        return 0;
+      }
+
+      /* rest is query-pattern */
+      query_pattern.s = 
+	coap_opt_value(query_filter) + resource_param.length + 1;
+
+      assert((resource_param.length + 1) <= coap_opt_length(query_filter));
+      query_pattern.length = 
+	coap_opt_length(query_filter) - (resource_param.length + 1);
+    }
+  }
+#endif /* WITHOUT_QUERY_FILTER */
+
+  str unquoted_val;
+
+  if (strstr((const char *)query_pattern.s, "core.rd") == NULL) return 0;
+
+  RESOURCES_ITER(context->resources, r) {
+
+    coap_attr_t *attr;
+    attr = coap_find_attr(r, (const unsigned char *)"rt", 2);
+    if (!attr) continue;
+    if (attr->value.s[0] == '"') {          /* if attribute has a quoted value, remove double quotes */
+      unquoted_val.length = attr->value.length - 2;
+      unquoted_val.s = attr->value.s + 1;
+    } else {
+      unquoted_val = attr->value;
+    }
+
+    if (query_pattern.length && 
+      query_pattern.s[query_pattern.length-1] == '*') {
+
+      query_pattern.length--;
+      flags |= MATCH_PREFIX;
+    }
+
+    if (!(coap_match(&unquoted_val, &query_pattern, 
+      (flags & MATCH_PREFIX) != 0, 0)))
+      continue;
+
+    if (!subsequent_resource) {	/* this is the first resource  */
+      subsequent_resource = 1;
+    } else {
+      PRINT_COND_WITH_OFFSET(p, bufend, offset, ',', written);
+      PRINT_COND_WITH_OFFSET(p, bufend, offset, '\n', written);
+    }
+
+    left = bufend - p; /* calculate available space */
+    result = coap_print_link(r, p, &left, &offset);
+
+    if (result & COAP_PRINT_STATUS_ERROR) {
+      break;
+    }
+ 
+    /* coap_print_link() returns the number of characters that
+     * where actually written to p. Now advance to its end. */
+    p += COAP_PRINT_OUTPUT_LENGTH(result);
+    written += left;
+  }
+
+  *buflen = written;
+  result = p - buf;
+  if (result + old_offset - offset < *buflen) {
+    result |= COAP_PRINT_STATUS_TRUNC;
+  }
+  return result;
 }
 
 /** 
@@ -236,7 +374,7 @@ coap_print_wellknown(coap_context_t *context, unsigned char *buf, size_t *buflen
     if (resource_param.length) { /* there is a query filter */
       
       if (flags & MATCH_URI) {	/* match resource URI */
-	if (!match(&r->uri, &query_pattern, (flags & MATCH_PREFIX) != 0, (flags & MATCH_SUBSTRING) != 0))
+	if (!coap_match(&r->uri, &query_pattern, (flags & MATCH_PREFIX) != 0, (flags & MATCH_SUBSTRING) != 0))
 	  continue;
       } else {			/* match attribute */
 	coap_attr_t *attr;
@@ -249,7 +387,7 @@ coap_print_wellknown(coap_context_t *context, unsigned char *buf, size_t *buflen
         } else {
           unquoted_val = attr->value;
         }
-	if (!(match(&unquoted_val, &query_pattern, 
+	if (!(coap_match(&unquoted_val, &query_pattern, 
                     (flags & MATCH_PREFIX) != 0,
                     (flags & MATCH_SUBSTRING) != 0)))
 	  continue;
@@ -261,6 +399,7 @@ coap_print_wellknown(coap_context_t *context, unsigned char *buf, size_t *buflen
       subsequent_resource = 1;
     } else {
       PRINT_COND_WITH_OFFSET(p, bufend, offset, ',', written);
+      PRINT_COND_WITH_OFFSET(p, bufend, offset, '\n', written);
     }
 
     left = bufend - p; /* calculate available space */
@@ -282,6 +421,137 @@ coap_print_wellknown(coap_context_t *context, unsigned char *buf, size_t *buflen
     result |= COAP_PRINT_STATUS_TRUNC;
   }
   return result;
+}
+
+coap_resource_t *
+coap_resource_rd_init(const unsigned char *uri, size_t len, const unsigned char *key_uri, size_t key_len, int flags) {
+  coap_resource_t *r;
+
+#ifdef WITH_LWIP
+  r = (coap_resource_t *)memp_malloc(MEMP_COAP_RESOURCE);
+#endif
+#ifndef WITH_LWIP
+  r = (coap_resource_t *)coap_malloc_type(COAP_RESOURCE, sizeof(coap_resource_t));
+#endif
+  if (r) {
+    memset(r, 0, sizeof(coap_resource_t));
+
+    r->uri.s = (unsigned char *)uri;
+    r->uri.length = len;
+    
+    coap_hash_path(key_uri, key_len, r->key);
+    
+    r->flags = flags;
+  } else {
+    debug("coap_resource_rd_init: no memory left\n");
+  }
+  
+  return r;
+}
+
+coap_link_t *
+coap_add_link(coap_resource_t *resource, 
+	      const char *href, const char *ct, const char *rt, 
+	      const char *ifd, const char *rel, const char *ins, 
+              int exp) {
+
+  coap_link_t *link;
+
+  if (!resource || !href)
+    return NULL;
+
+#ifdef WITH_LWIP
+  link = (coap_link_t *)memp_malloc(MEMP_COAP_RESOURCELINK);
+#endif
+#ifndef WITH_LWIP
+  link = (coap_link_t *)coap_malloc_type(COAP_RESOURCELINK, sizeof(coap_link_t));
+#endif
+
+  if (link) {
+
+    link->href.s = (unsigned char *)href;
+    link->href.length = strlen(href);
+
+    link->ct.s = (unsigned char *)ct;
+    link->ct.length = ct ? strlen(ct) : 0;
+
+    link->rt.s = (unsigned char *)rt;
+    link->rt.length = rt ? strlen(rt) : 0;
+
+    link->ifd.s = (unsigned char *)ifd;
+    link->ifd.length = ifd ? strlen(ifd) : 0;
+
+    link->rel.s = (unsigned char *)rel;
+    link->rel.length = rel ? strlen(rel) : 0;
+
+    link->ins.s = (unsigned char *)ins;
+    link->ins.length = ins ? strlen(ins) : 0;
+
+    link->exp = exp;
+
+    /* add link to resource list */
+    LL_PREPEND(resource->links, link);
+  } else {
+    debug("coap_add_link: no memory left\n");
+  }
+  
+  return link;
+}
+
+coap_link_t *
+coap_find_link(coap_resource_t *resource, 
+	       const char *href, size_t nlen) {
+  coap_link_t *link;
+
+  if (!resource || !href)
+    return NULL;
+
+  LL_FOREACH(resource->links, link) {
+    if (link->href.length == nlen &&
+	memcmp(link->href.s, href, nlen) == 0)
+      return link;
+  }
+
+  return NULL;
+}
+
+void
+coap_delete_link(coap_resource_t *resource, coap_link_t *link) {
+  if (!link)
+    return;
+
+  if (link->href.s){
+    coap_free(link->href.s);
+  }
+
+  if (link->ct.s){
+    coap_free(link->ct.s);
+  }
+
+  if (link->rt.s){
+    coap_free(link->rt.s);
+  }
+
+  if (link->ifd.s){
+    coap_free(link->ifd.s);
+  }
+
+  if (link->rel.s){
+    coap_free(link->rel.s);
+  }
+
+  if (link->ins.s){
+    coap_free(link->ins.s);
+  }
+
+  LL_DELETE(resource->links,link);
+
+#ifdef WITH_LWIP
+  memp_free(MEMP_COAP_RESOURCELINK, link);
+#endif
+#ifndef WITH_LWIP
+  coap_free_type(COAP_RESOURCELINK, link);
+#endif
 }
 
 coap_resource_t *
@@ -309,6 +579,22 @@ coap_resource_init(const unsigned char *uri, size_t len, int flags) {
   
   return r;
 }
+
+/*void
+coap_add_lifetime(coap_resource_t *resource, 
+              unsigned long time_sec) {
+
+  if (!resource)
+    return;
+*/
+  /* Current time in seconds */
+/*  time_t sec = time(0);
+
+  sec = sec + (time_t)time_sec;
+
+  resource->lifetime = sec;
+
+}*/
 
 coap_attr_t *
 coap_add_attr(coap_resource_t *resource, 
@@ -363,13 +649,17 @@ coap_find_attr(coap_resource_t *resource,
 }
 
 void
-coap_delete_attr(coap_attr_t *attr) {
+coap_delete_attr(coap_resource_t *resource, coap_attr_t *attr) {
   if (!attr)
     return;
+
   if (attr->flags & COAP_ATTR_FLAGS_RELEASE_NAME)
     coap_free(attr->name.s);
+
   if (attr->flags & COAP_ATTR_FLAGS_RELEASE_VALUE)
     coap_free(attr->value.s);
+
+  LL_DELETE(resource->link_attr, attr);
 
 #ifdef WITH_LWIP
   memp_free(MEMP_COAP_RESOURCEATTR, attr);
@@ -391,8 +681,13 @@ coap_hash_request_uri(const coap_pdu_t *request, coap_key_t key) {
   coap_option_setb(filter, COAP_OPTION_URI_PATH);
 
   coap_option_iterator_init((coap_pdu_t *)request, &opt_iter, filter);
-  while ((option = coap_option_next(&opt_iter)))
+  while ((option = coap_option_next(&opt_iter))){
     coap_hash(COAP_OPT_VALUE(option), COAP_OPT_LENGTH(option), key);
+
+    if (strncmp((const char *)coap_opt_value(option), "rd-lookup", 9) == 0){
+      return;
+    }
+  }
 }
 
 void
@@ -400,18 +695,26 @@ coap_add_resource(coap_context_t *context, coap_resource_t *resource) {
   RESOURCES_ADD(context->resources, resource);
 }
 
-static void
+void
 coap_free_resource(coap_resource_t *resource) {
   coap_attr_t *attr, *tmp;
   coap_subscription_t *obs, *otmp;
+  coap_link_t *link, *link_tmp;
 
   assert(resource);
 
   /* delete registered attributes */
-  LL_FOREACH_SAFE(resource->link_attr, attr, tmp) coap_delete_attr(attr);
+  LL_FOREACH_SAFE(resource->link_attr, attr, tmp) coap_delete_attr(resource, attr);
+
+  /* delete registered links */
+  LL_FOREACH_SAFE(resource->links, link, link_tmp) coap_delete_link(resource, link);
 
   if (resource->flags & COAP_RESOURCE_FLAGS_RELEASE_URI)
     coap_free(resource->uri.s);
+
+  /*release the IP information*/
+  if (resource->A.s!=NULL)
+    coap_free(resource->A.s);
 
   /* free all elements from resource->subscribers */
   LL_FOREACH_SAFE(resource->subscribers, obs, otmp) COAP_FREE_TYPE(subscription, obs);
@@ -439,6 +742,10 @@ coap_delete_resource(coap_context_t *context, coap_key_t key) {
   /* remove resource from list */
   RESOURCES_DELETE(context->resources, resource);
 
+  /* remove the resource from the lifetime list too */
+  if (resource->lifetime)
+    coap_delete_lifetime_node(context, resource->lifetime);
+
   /* and free its allocated memory */
   coap_free_resource(resource);
 
@@ -465,6 +772,38 @@ coap_delete_all_resources(coap_context_t *context) {
   context->resources = NULL;
 }
 
+coap_key_t *
+coap_build_key_for_resource(str ep, unsigned char *root, int KEYSIZE) {
+
+  unsigned int *int_ep_key;
+  coap_key_t ep_key = {0};
+  char ep_key_str[16] = {0};
+  size_t ep_size, key_size;
+  coap_key_t *resource_key = malloc (sizeof(coap_key_t));
+  size_t loc_size = strlen((const char *)root);
+
+  memset(resource_key, 0, sizeof(coap_key_t));
+
+  /* create a key from the ep node */
+  ep_size = min(ep.length, KEYSIZE - loc_size - 1);
+  coap_hash_path(ep.s, ep_size, ep_key);
+
+  /* translate the key into a string */
+  int_ep_key = (void *)(&ep_key);
+  snprintf(ep_key_str, 16, "%u", *int_ep_key);
+
+  /* rd/ep_key_str */
+  memcpy(root + loc_size, ep_key_str, min(strlen(ep_key_str), KEYSIZE - loc_size - 1));
+  key_size = min(strlen(ep_key_str), KEYSIZE - loc_size - 1) + loc_size;
+
+  root[key_size] = '\0';
+
+  /* create the final key of rd/ep_key_str. We will send rd/ep_key_str to the client */
+  coap_hash_path(root, key_size, (unsigned char *)resource_key);
+
+  return resource_key;
+}
+
 coap_resource_t *
 coap_get_resource_from_key(coap_context_t *context, coap_key_t key) {
   coap_resource_t *result;
@@ -474,49 +813,53 @@ coap_get_resource_from_key(coap_context_t *context, coap_key_t key) {
   return result;
 }
 
-coap_print_status_t
-coap_print_link(const coap_resource_t *resource, 
-		unsigned char *buf, size_t *len, size_t *offset) {
-  unsigned char *p = buf;
-  const unsigned char *bufend = buf + *len;
-  coap_attr_t *attr;
-  coap_print_status_t result = 0;
-  const size_t old_offset = *offset;
-  
-  *len = 0;
-  PRINT_COND_WITH_OFFSET(p, bufend, *offset, '<', *len);
-  PRINT_COND_WITH_OFFSET(p, bufend, *offset, '/', *len);
 
-  COPY_COND_WITH_OFFSET(p, bufend, *offset, 
-			resource->uri.s, resource->uri.length, *len);
-  
-  PRINT_COND_WITH_OFFSET(p, bufend, *offset, '>', *len);
+unsigned char *
+coap_print_sequence_links(coap_link_t *link, unsigned char *buf, const unsigned char *bufend, size_t *len, size_t *offset){
 
-  LL_FOREACH(resource->link_attr, attr) {
+    PRINT_COND_WITH_OFFSET(buf, bufend, *offset, '\n', *len);
 
-    PRINT_COND_WITH_OFFSET(p, bufend, *offset, ';', *len);
-
-    COPY_COND_WITH_OFFSET(p, bufend, *offset,
-			  attr->name.s, attr->name.length, *len);
-
-    if (attr->value.s) {
-      PRINT_COND_WITH_OFFSET(p, bufend, *offset, '=', *len);
-
-      COPY_COND_WITH_OFFSET(p, bufend, *offset,
-			    attr->value.s, attr->value.length, *len);
+    if (link->href.s) {
+      	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+		  	  link->href.s, link->href.length, *len);
     }
 
-  }
-  if (resource->observable) {
-    COPY_COND_WITH_OFFSET(p, bufend, *offset, ";obs", 4, *len);
-  }
+    if (link->ct.s) {
+	COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";ct=", 4, *len);
+    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+			  link->ct.s, link->ct.length, *len);
+    }
 
-  result = p - buf;
-  if (result + old_offset - *offset < *len) {
-    result |= COAP_PRINT_STATUS_TRUNC;
-  }
+    if (link->rt.s) {
+	COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";rt=", 4, *len);
+    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+			  link->rt.s, link->rt.length, *len);
+    }
 
-  return result;
+    if (link->ifd.s) {
+        COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";if=", 4, *len);
+    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+			  link->ifd.s, link->ifd.length, *len);
+    }
+
+    if (link->rel.s) {
+        COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";rel=", 5, *len);
+    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+			  link->rel.s, link->rel.length, *len);
+    }
+
+    if (link->ins.s) {
+        COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";ins=", 5, *len);
+    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+			  link->ins.s, link->ins.length, *len);
+    }
+
+    if (link->exp) {
+        COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";exp", 4, *len);
+    }
+
+  return buf;
+
 }
 
 #ifndef WITHOUT_OBSERVE

@@ -76,7 +76,8 @@ typedef struct {
 typedef struct coap_context_t {
   coap_opt_filter_t known_options;
   struct coap_resource_t *resources; /**< hash table or list of known resources */
-
+  struct coap_group_t *groups; /**< hash table or list of known groups */
+  struct coap_lifetime_t *lifetime; /**< linked list of resources' lifetime */
 #ifndef WITHOUT_ASYNC
   /**
    * list of asynchronous transactions */
@@ -127,6 +128,12 @@ typedef struct coap_context_t {
                           unsigned char *data, size_t datalen);
 
   ssize_t (*network_read)(coap_endpoint_t *ep, coap_packet_t **packet);
+
+  /**
+   * This variable informs that the resource directory 
+   * module is set at run time.
+   */
+  int init_mod_coap_rd;
 
 } coap_context_t;
 

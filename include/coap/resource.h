@@ -36,6 +36,19 @@
 #include "subscribe.h"
 
 /**
+ * Definition of links.
+ */
+
+typedef enum { 
+  HREF=1, 
+  REL, 
+  RT,
+  IF,
+  CT,
+  INS
+} Link_type;  
+
+/**
  * Definition of message handler function (@sa coap_resource_t).
  */
 typedef void (*coap_method_handler_t)
@@ -57,9 +70,22 @@ typedef struct coap_attr_t {
   int flags;
 } coap_attr_t;
 
+typedef struct coap_link_t {
+  struct coap_link_t *next;
+  str href;	/*URI target of the link*/
+  str rel;	/*relation type*/
+  str rt;	/* Resource type*/
+  str ifd;	/*Interface Description*/
+  str ct;	/*Content Type*/
+  str ins;	/*Resource Instance*/
+  int exp; 	/*Export attribute*/
+} coap_link_t;
+
 #define COAP_RESOURCE_FLAGS_RELEASE_URI 0x1
 #define COAP_RESOURCE_FLAGS_NOTIFY_NON  0x0
 #define COAP_RESOURCE_FLAGS_NOTIFY_CON  0x2
+
+#define COAP_RESOURCE_FLAGS_EXPORT	0x1
 
 typedef struct coap_resource_t {
   unsigned int dirty:1;          /**< set to 1 if resource has changed */
@@ -92,9 +118,87 @@ typedef struct coap_resource_t {
    * memory.
    */
   str uri;
+  str A; /** The source IP address and source port of the request*/
+
+  coap_link_t *links; /**< collection of links of a single endpoint> */
+
   int flags;
 
+  int exp;
+
+  struct coap_lifetime_t *lifetime; /* link to the lifetime node */
+
 } coap_resource_t;
+
+/**
+ * Checks if @p text matchs the @p pattern. The funtion can match just the prefix or a substring of @p pattern.
+ * This function returns 1 if there is match, 0 otherwise.
+ *
+ * @param text        	  The string to match.
+ * @param pattern         The pattern string to match against @p text.
+ * @param match_prefix    The flag to match the @p pattern as prefix.
+ * @param match_substring The flag to match the @p pattern as a substring.
+ *
+ * @return       Returns 1 if the match exists, otherwise returns 0.
+ */
+
+int coap_match(const str *text, const str *pattern, int match_prefix, int match_substring);
+
+/**
+ * Creates a new resource object in the resource directory and initializes the link field to the string
+ * of length @p len. This function returns the new coap_resource_t object.
+ *
+ * @param uri        The URI path of the new resource.
+ * @param len        The length of @p uri.
+ * @param key_uri    The URI path of the identifier of the resource.
+ * @param key_len    The length of @p key_uri.
+ * @param flags      Flags for memory management (in particular release of memory).
+ *
+ * @return       A pointer to the new object or @c NULL on error.
+ */
+coap_resource_t *coap_resource_rd_init(const unsigned char *uri, size_t len, const unsigned char *key_uri, 
+                  size_t key_len, int flags);
+
+/**
+ * Registers a new link with the given @p resource. As the
+ * link str fields will point to @p href the
+ * caller must ensure that this pointer is valid during the
+ * link's lifetime.
+ *
+ * @param resource The resource to register the link with.
+ * @param href     The link's name.
+ * @param ct       The Content Type's value or @c NULL if none.
+ * @param rt       The Resource Type's value or @c NULL if none.
+ * @param ifd      The Interface Description value or @c NULL if none.
+ * @param rel      The Relation Type  value or @c NULL if none
+ * @param ins      The Resource Instance Type  value or @c NULL if none
+ * @param exp      The Export Type value or @c 0 if none
+ *
+ * @return         A pointer to the new link or @c NULL on error.
+ */
+coap_link_t *coap_add_link(coap_resource_t *resource, const char *href, const char *ct, const char *rt, 
+	      const char *ifd, const char *rel, const char *ins, int exp);
+
+/**
+ * Returns @p resource's coap_link_t object with given @p href if found, @c NULL
+ * otherwise.
+ *
+ * @param resource The resource to search for link @p href.
+ * @param href     Name of the requested link.
+ * @param nlen     Length of the requested link.
+ * @return         The first link with specified @p href or @c NULL if none
+ *                 was found.
+ */
+coap_link_t *coap_find_link(coap_resource_t *resource, const char *href, size_t nlen);
+
+/**
+ * Deletes a link.
+ *
+ * @param resource The resource to look for the link and delete it.
+ * @param link Pointer to a previously created link.
+ *
+ */
+void coap_delete_link(coap_resource_t *resource, coap_link_t *link);
 
 /**
  * Creates a new resource object and initializes the link field to the string
@@ -108,7 +212,6 @@ typedef struct coap_resource_t {
  */
 coap_resource_t *coap_resource_init(const unsigned char *uri,
                                     size_t len, int flags);
-
 
 /**
  * Sets the notification message type of resource @p r to given
@@ -141,6 +244,16 @@ void coap_add_resource(coap_context_t *context, coap_resource_t *resource);
  *                 @c 0 otherwise.
  */
 int coap_delete_resource(coap_context_t *context, coap_key_t key);
+
+/**
+ * Deletes a resource identified by @p resource. The storage allocated for that
+ * resource is freed.
+ *
+ * @param resource  The resources itself.
+ *
+ */
+
+void coap_free_resource(coap_resource_t *resource);
 
 /**
  * Deletes all resources from given @p context and frees their storage.
@@ -189,10 +302,11 @@ coap_attr_t *coap_find_attr(coap_resource_t *resource,
 /**
  * Deletes an attribute.
  *
+ * @param resource The resource to look for the attribute and delete it.
  * @param attr Pointer to a previously created attribute.
  *
  */
-void coap_delete_attr(coap_attr_t *attr);
+void coap_delete_attr(coap_resource_t *resource, coap_attr_t *attr);
 
 /**
  * Status word to encode the result of conditional print or copy operations such
@@ -214,10 +328,11 @@ typedef unsigned int coap_print_status_t;
  * Writes a description of this resource in link-format to given text buffer. @p
  * len must be initialized to the maximum length of @p buf and will be set to
  * the number of characters actually written if successful. This function
- * returns @c 1 on success or @c 0 on error.
+ * returns the buffer on success or NULL on error.
  *
- * @param resource The resource to describe.
+ * @param link	   The resource to describe.
  * @param buf      The output buffer to write the description to.
+ * @param bufend   The end of the @p buf.
  * @param len      Must be initialized to the length of @p buf and
  *                 will be set to the length of the printed link description.
  * @param offset   The offset within the resource description where to
@@ -225,16 +340,15 @@ typedef unsigned int coap_print_status_t;
  *                 with the Block2 option. @p offset is updated during
  *                 output as it is consumed.
  *
- * @return If COAP_PRINT_STATUS_ERROR is set, an error occured. Otherwise,
- *         the lower 28 bits will indicate the number of characters that
- *         have actually been output into @p buffer. The flag
- *         COAP_PRINT_STATUS_TRUNC indicates that the output has been
- *         truncated.
+ * @return The function returns the a char* with the printed information. Otherwise,
+ *	   it will return a NULL pointer.
  */
-coap_print_status_t coap_print_link(const coap_resource_t *resource,
-                                    unsigned char *buf,
-                                    size_t *len,
-                                    size_t *offset);
+unsigned char *coap_print_sequence_links(coap_link_t *link, 
+					  unsigned char *buf, 
+					  const unsigned char *bufend, 
+					  size_t *len, 
+					  size_t *offset);
+
 
 /**
  * Registers the specified @p handler as message handler for the request type @p
@@ -252,6 +366,18 @@ coap_register_handler(coap_resource_t *resource,
   assert(method > 0 && (size_t)(method-1) < sizeof(resource->handler)/sizeof(coap_method_handler_t));
   resource->handler[method-1] = handler;
 }
+
+/**
+ * Returns the key of a specific resource with @p ep. If no key
+ * was created, this function returns @c 0.
+ *
+ * @param ep  	   EndPoint Identifier of the resource.
+ * @param root     String of the root path of the Resource Directory.
+ * @param KEYSIZE  Maximum size of the key.
+ *
+ * @return         A pointer to the key or @c 0 if not found.
+ */
+coap_key_t *coap_build_key_for_resource(str ep, unsigned char *root, int KEYSIZE);
 
 /**
  * Returns the resource identified by the unique string @p key. If no resource
@@ -383,7 +509,49 @@ void coap_check_notify(coap_context_t *context);
 
 #endif /* COAP_RESOURCES_NOHASH */
 
+/* Helper functions for conditional output of character sequences into
+ * a given buffer. The first Offset characters are skipped.
+ */
+
+/**
+ * Adds Char to Buf if Offset is zero. Otherwise, Char is not written
+ * and Offset is decremented.
+ */
+#define PRINT_WITH_OFFSET(Buf,Offset,Char)		\
+  if ((Offset) == 0) {					\
+    (*(Buf)++) = (Char);				\
+  } else {						\
+    (Offset)--;						\
+  }							\
+
+/**
+ * Adds Char to Buf if Offset is zero and Buf is less than Bufend.
+ */
+#define PRINT_COND_WITH_OFFSET(Buf,Bufend,Offset,Char,Result) {		\
+    if ((Buf) < (Bufend)) {						\
+      PRINT_WITH_OFFSET(Buf,Offset,Char);				\
+    }									\
+    (Result)++;								\
+  }
+
+/**
+ * Copies at most Length characters of Str to Buf. The first Offset
+ * characters are skipped. Output may be truncated to Bufend - Buf
+ * characters.
+ */
+#define COPY_COND_WITH_OFFSET(Buf,Bufend,Offset,Str,Length,Result) {	\
+    size_t i;								\
+    for (i = 0; i < (Length); i++) {					\
+      PRINT_COND_WITH_OFFSET((Buf), (Bufend), (Offset), (Str)[i], (Result)); \
+    }									\
+  }
+
 /** @} */
+
+coap_print_status_t coap_print_wellknown_rd(coap_context_t *,
+                                         unsigned char *,
+                                         size_t *, size_t,
+                                         coap_opt_t *);
 
 coap_print_status_t coap_print_wellknown(coap_context_t *,
                                          unsigned char *,

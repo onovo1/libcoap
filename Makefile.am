@@ -20,6 +20,8 @@ EXTRA_DIST = \
   libcoap-$(LIBCOAP_API_VERSION).map \
   libcoap-$(LIBCOAP_API_VERSION).sym \
   examples/coap_list.h \
+  ## TODO: remove rd_list_elements.c later, debugging purpose only
+  examples/rd_list_elements.c \
   tests/test_options.h \
   tests/test_pdu.h \
   tests/test_error_response.h \
@@ -56,6 +58,8 @@ libcoap_@LIBCOAP_API_VERSION@_la_SOURCES = \
   src/debug.c \
   src/encode.c \
   src/hashkey.c \
+  src/group.c \
+  src/lifetime.c \
   src/mem.c \
   src/net.c \
   src/option.c \
@@ -80,8 +84,10 @@ libcoap_include_HEADERS = \
    include/coap/coap_time.h \
    include/coap/debug.h \
    include/coap/encode.h \
+   include/coap/group.h \
    include/coap/hashkey.h \
    include/coap/libcoap.h \
+   include/coap/lifetime.h \
    include/coap/mem.h \
    include/coap/net.h \
    include/coap/option.h \
