@@ -1,6 +1,6 @@
 /* group.h -- CoAP group structures used in the resource directory
  *
- * Copyright (C) 2010,2011,2015 Oscar Novo
+ * Copyright (C) 2010,2011,2016 Oscar Novo
  *
  * This file is part of the CoAP library libcoap. Please see README for terms of
  * use.

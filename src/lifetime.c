@@ -8,8 +8,6 @@
  *
  */
 
-//#include<stdio.h>
-//#include<stdlib.h>
 #include "lifetime.h"
 #include "utlist.h"
 #include "mem.h"
@@ -56,13 +54,10 @@ coap_print_status_t coap_display_lifetime(coap_context_t *context, unsigned char
       COPY_COND_WITH_OFFSET(p, bufend, offset, ";", 1, written);
     }
 
-//    result = coap_print_link_test(r, p, &left, &offset);
-
     if (result & COAP_PRINT_STATUS_ERROR) {
       break;
     }
  
-    // coap_print_link_test() returns the number of characters that where actually written to p. Now advance to its end. //
     p += COAP_PRINT_OUTPUT_LENGTH(result);
     written += left;
   }
@@ -143,8 +138,6 @@ int coap_update_lifetime(coap_context_t *context, coap_resource_t *resource, tim
 
   if (!resource->lifetime)
     return 0;
-
-//  if (!coap_delete_lifetime(context, resource->key, resource->lifetime->time)) return 0;
 
   if (!coap_delete_lifetime_node(context, resource->lifetime)) return 0;
 

@@ -684,7 +684,7 @@ coap_hash_request_uri(const coap_pdu_t *request, coap_key_t key) {
   while ((option = coap_option_next(&opt_iter))){
     coap_hash(COAP_OPT_VALUE(option), COAP_OPT_LENGTH(option), key);
 
-    if (strncmp((const char *)coap_opt_value(option), "rd-lookup", 9) == 0){
+    if ((coap_opt_length(option)>0) && (strncmp((const char *)coap_opt_value(option), "rd-lookup", 9) == 0)){
       return;
     }
   }
