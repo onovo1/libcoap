@@ -662,7 +662,7 @@ cmdline_content_type(char *arg, unsigned short key) {
 static void
 cmdline_uri(char *arg) {
   unsigned char portbuf[2];
-#define BUFSIZE 40
+#define BUFSIZE 140
   unsigned char _buf[BUFSIZE];
   unsigned char *buf = _buf;
   size_t buflen;
