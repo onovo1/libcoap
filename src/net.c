@@ -1438,7 +1438,6 @@ handle_request(coap_context_t *context, coap_queue_t *node) {
   } else {
     /* the group was found, check if there is a registered handler */
 
-printf("print size of code %i\n", (size_t)node->pdu->hdr->code - 1);
     if (sizeof(group->handler)/sizeof(coap_method_group_handler_t)){
       hg = group->handler[0];
       h = NULL;
