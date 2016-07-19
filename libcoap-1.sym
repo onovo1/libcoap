@@ -20,6 +20,7 @@ coap_check_option
 coap_clock_init
 coap_clone_uri
 coap_count_nodes_lifetime
+coap_create_map_rule
 coap_decode_var_bytes
 coap_delete_all
 coap_delete_all_resources
@@ -55,6 +56,7 @@ coap_get_block
 coap_get_data
 coap_get_group_from_key
 coap_get_log_level
+coap_pcp_resp_not_authorized
 coap_get_resource_from_key
 coap_group_rd_init
 coap_handle_failed_notify

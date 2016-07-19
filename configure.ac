@@ -92,6 +92,9 @@ AC_SUBST(LIBCOAP_SO_VERSION)
 LIBCOAP_API_VERSION=1
 AC_SUBST(LIBCOAP_API_VERSION)
 
+# Check for pkg-config
+PKG_PROG_PKG_CONFIG()
+
 # Adding some default warning options for code QS
 # see https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html
 # and http://www.gnu.org/software/automake/manual/html_node/Flag-Variables-Ordering.html
@@ -247,6 +250,26 @@ if test "x$build_examples" = "xyes" -a "x$build_documentation" = "xyes"; then
 	build_examples="yes"
 fi
 AM_CONDITIONAL(BUILD_EXAMPLES, [test "x$build_examples" = "xyes"])
+
+# configure options
+# __RE_and_REW__
+
+# For RE
+PKG_CHECK_MODULES([RE],[libre])
+
+# For REW
+
+AC_ARG_WITH([rew], [AS_HELP_STRING([--with-rew],[Installation path of librew])], [rew_path="$withval"])
+# check for "" -> error
+if test "x$rew_path" = "x"; then
+	AC_MSG_ERROR([==> Librew must be installed and the --with-rew path must be include in the configure file!])
+fi
+
+REW_CFLAGS="-I$rew_path/include"
+REW_LIBS="-L$rew_path -lrew"
+
+AC_SUBST(REW_LIBS)
+AC_SUBST(REW_CFLAGS)
 
 # end configure options
 #######################

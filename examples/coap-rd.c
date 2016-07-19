@@ -32,12 +32,16 @@
 #include "coap_list.h"
 #include "utlist.h"
 #include "lifetime.h"
+#include "pcp_client.h"
 
 //TODO file included only for testing proposed
 #include "rd_list_elements.h"
 
 #include "mjson.h"
 #include <errno.h>
+
+#include <net/if.h>
+#include <sys/ioctl.h>
 
 #define COAP_RESOURCE_CHECK_TIME 2
 
@@ -73,9 +77,157 @@ coap_tick_t max_wait;                   /* global timeout (changed by set_timeou
 /* temporary storage for dynamic resource representations */
 static int quit = 0;
 
+static const char *configfile = "pcp.conf";
+char pcp_server[128], external_interface[20];
+int pcp_internal_port = 5683;
+int portno = 1024;
+
 /**********************************************************/
 /***                    UTILS FUNTIONS                  ***/
 /**********************************************************/
+
+static void upload_config_file(void){
+
+  FILE *fp;
+  char buff[256];
+  char name[80];
+
+  /* configuration file */
+  if((fp = fopen(configfile, "r")) == NULL) {
+    fprintf(stderr, "error loading configuration: %s\n", configfile);
+        exit(1);
+  }
+
+  /* Read next line */
+  while ((fgets (buff, sizeof buff, fp)) != NULL)
+  {
+    /* Skip blank lines and comments */
+    if (buff[0] == '\n' || buff[0] == '#')
+      continue;
+
+    /* Parse name/value pair from line */
+    if (strstr(buff, "pcp_server_listen"))
+      sscanf(buff, "%s %s\n", name, pcp_server);
+    else if (strstr(buff, "internal_port"))
+      sscanf(buff, "%s %d\n", name, &pcp_internal_port);
+    else if (strstr(buff, "external_interface"))
+      sscanf(buff, "%s %s\n", name, external_interface);
+  }
+  fclose (fp);
+  return;
+
+}
+
+static unsigned char* concat(unsigned char *s1, unsigned char *s2)
+{
+    size_t len1 = strlen((char *)s1), len2 = strlen((char *)s2);
+
+    unsigned char *result = coap_malloc(len1+len2+1);//+1 for the zero-terminator
+    if (!result) return NULL;
+
+    memcpy(result, s1, len1);
+    memcpy(result+len1, s2, len2+1);//+1 to copy the null-terminator
+    return result;
+}
+
+static int add_new_NAT_rule(uint32_t lifetime, char *thrd_part){
+
+  int fd;
+  int max_num_ports = 64511; //max number of available ports 65535-1024
+  struct ifreq ifr;
+  struct hostent *server;
+  struct sockaddr_in serv_addr;
+  char* ext_int;
+  char *ext_addr;
+  int i;
+  char str[7];
+int err;
+
+  fd = socket(AF_INET, SOCK_DGRAM, 0);
+  if (fd < 0) {
+    debug("add_new_NAT_rule, ERROR opening socket\n");
+    return 2;
+  }
+  /* Get an IPv4 IP address */
+  ifr.ifr_addr.sa_family = AF_INET;
+
+  /* IP address attached to "external_interface" */
+  strncpy(ifr.ifr_name, external_interface, IFNAMSIZ-1);
+
+  ioctl(fd, SIOCGIFADDR, &ifr);
+
+  ext_int = inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr);
+
+  /* Find a port for the external interface */
+  server = gethostbyname(ext_int);
+ 
+  if (server == NULL) {
+    debug("add_new_NAT_rule, no such host\n");
+    return 2;
+  }
+ 
+  bzero((char *) &serv_addr, sizeof(serv_addr));
+  serv_addr.sin_family = AF_INET;
+  bcopy((char *)server->h_addr,
+       (char *)&serv_addr.sin_addr.s_addr,
+       server->h_length);
+ 
+  portno = portno + 1;
+  serv_addr.sin_port = htons(portno);
+
+  for (i=0; i<max_num_ports;i++){
+
+    if (connect(fd,(struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0){
+debug("Port is closed\n");
+
+      if (portno >= 65535){
+        portno = 1025;
+      } else {
+        portno = portno + 1;
+      }
+
+      serv_addr.sin_port = htons(portno);
+    } else {
+
+      //convert port to string
+      sprintf(str, ":%d", portno);
+
+      ext_addr = (char*)concat((unsigned char*)ext_int, (unsigned char*)str);
+      printf("external address is %s\n",ext_addr);
+
+      err = coap_create_map_rule(pcp_server, lifetime, ext_addr, pcp_internal_port, thrd_part); 
+
+if (err || coap_pcp_resp_not_authorized() ) {
+
+printf("error is %i\n", coap_pcp_resp_not_authorized());
+}
+      break;
+    }
+
+  }
+
+  if (i == max_num_ports){
+//all ports are taken
+  }
+
+  close(fd);
+
+  //convert port to string
+/*  sprintf(str, ":%d", portno);
+
+  ext_addr = concat((unsigned char*)ext_int, (unsigned char*)str);
+printf("external address is %s\n",ext_addr);
+*/
+//ext_int
+//portno
+  /* display result */
+  //printf("%s\n", inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr));
+
+//  return (inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr));
+return(err);
+//  return(coap_create_map_rule(pcp_server, lifetime, "10.0.0.210:3000", pcp_internal_port, thrd_part));
+  
+}
 
 static inline void
 set_timeout(coap_tick_t *timer, const unsigned int seconds) {
@@ -176,16 +328,60 @@ static int match_options(str pattern, str option) {
   return 0;
 }
 
-static unsigned char* concat(unsigned char *s1, unsigned char *s2)
-{
-    size_t len1 = strlen((char *)s1), len2 = strlen((char *)s2);
+static char *
+get_source_address(coap_address_t *peer) {
 
-    unsigned char *result = coap_malloc(len1+len2+1);//+1 for the zero-terminator
-    if (!result) return NULL;
+//64 bits
+#define BUFSIZE 64
 
-    memcpy(result, s1, len1);
-    memcpy(result+len1, s2, len2+1);//+1 to copy the null-terminator
-    return result;
+  char *buf;
+  size_t n = 0;
+
+  buf = (char *)coap_malloc(BUFSIZE);
+  if (!buf)
+    return NULL;
+
+  switch(peer->addr.sa.sa_family) {
+
+  case AF_INET:
+
+    inet_ntop(AF_INET, &(peer->addr.sin.sin_addr.s_addr), buf, 16);
+
+    n = sizeof(buf) + 1;
+    break;
+
+  case AF_INET6:
+    n += snprintf(buf + n, BUFSIZE - n,
+      "[%02x%02x:%02x%02x:%02x%02x:%02x%02x" \
+      ":%02x%02x:%02x%02x:%02x%02x:%02x%02x]",
+      peer->addr.sin6.sin6_addr.s6_addr[0],
+      peer->addr.sin6.sin6_addr.s6_addr[1],
+      peer->addr.sin6.sin6_addr.s6_addr[2],
+      peer->addr.sin6.sin6_addr.s6_addr[3],
+      peer->addr.sin6.sin6_addr.s6_addr[4],
+      peer->addr.sin6.sin6_addr.s6_addr[5],
+      peer->addr.sin6.sin6_addr.s6_addr[6],
+      peer->addr.sin6.sin6_addr.s6_addr[7],
+      peer->addr.sin6.sin6_addr.s6_addr[8],
+      peer->addr.sin6.sin6_addr.s6_addr[9],
+      peer->addr.sin6.sin6_addr.s6_addr[10],
+      peer->addr.sin6.sin6_addr.s6_addr[11],
+      peer->addr.sin6.sin6_addr.s6_addr[12],
+      peer->addr.sin6.sin6_addr.s6_addr[13],
+      peer->addr.sin6.sin6_addr.s6_addr[14],
+      peer->addr.sin6.sin6_addr.s6_addr[15]);
+
+    break;
+    default:
+    ;
+  }
+
+  if (n < BUFSIZE)
+    buf[n++] = '\0';
+
+  return buf;
+
+#undef BUFSIZE
 }
 
 static char *
@@ -208,11 +404,11 @@ add_source_address(coap_address_t *peer) {
   case AF_INET:
 
     //buf = 
-    inet_ntop(AF_INET, &(peer->addr.sin.sin_addr.s_addr), buf+1, 16);
+    inet_ntop(AF_INET, &(peer->addr.sin.sin_addr.s_addr), buf+n, 16);
 
     if (peer->addr.sin.sin_port != htons(COAP_DEFAULT_PORT)) {
         n =
-        snprintf(buf + sizeof(buf) + 1, BUFSIZE - sizeof(buf) - 1, ":%d", peer->addr.sin.sin_port) + sizeof(buf);
+        snprintf(buf + sizeof(buf) + n + 1, BUFSIZE - sizeof(buf) -n, ":%d", peer->addr.sin.sin_port) + sizeof(buf) + 2;
     }
     break;
 
@@ -2598,6 +2794,23 @@ hnd_post_rd(coap_context_t  *ctx,
 
   coap_add_resource(ctx, r);
 
+ /* display result */
+ //printf("%s\n", inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr));
+/*display result*/
+
+//printf("r is %s\n", r->A.s);
+//printf("A is %s\n", get_source_address(peer));
+
+//  printf("%s, %zd\n",upload_external_interface_to_address(), strlen(upload_external_interface_to_address()));
+
+//TODO: Check first if the sensor already has some open ports. 
+
+  add_new_NAT_rule(time, get_source_address(peer));
+
+//  coap_create_map_rule(pcp_server, time, "10.0.0.210:3000", pcp_internal_port, get_source_address(peer));
+//  coap_create_map_rule("10.0.0.210:5351", 7200, "10.0.0.210:3000", 5683, "192.168.0.2");
+//  coap_create_map_rule(char *pcp_srv, uint32_t lifetime, char *ext_addr, int int_port, char *thrd_part){
+
   /* create response */
 
   response->hdr->code = COAP_RESPONSE_CODE(201);
@@ -2813,7 +3026,12 @@ main(int argc, char **argv) {
   char port_str[NI_MAXSERV] = "5683";
   char *group = NULL;
   int opt;
+
   coap_log_t log_level = LOG_WARNING;
+
+
+  /*Upload the data from the config file*/
+  upload_config_file();
 
   while ((opt = getopt(argc, argv, "A:g:p:v:")) != -1) {
     switch (opt) {

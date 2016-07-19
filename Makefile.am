@@ -29,7 +29,8 @@ EXTRA_DIST = \
   tests/test_uri.h \
   tests/test_wellknown.h
 
-AM_CFLAGS = -I @top_builddir@/include/coap/ $(WARNING_CFLAGS) -std=c99
+AM_CFLAGS = -I @top_builddir@/include/coap/ $(RE_CFLAGS) $(REW_CFLAGS) -std=c99 $(WARNING_FLAGS)
+AM_LDFLAGS = $(RE_LIBS) $(REW_LIBS) 
 
 SUBDIRS = . $(DOC_DIR) tests examples
 
@@ -64,6 +65,7 @@ libcoap_@LIBCOAP_API_VERSION@_la_SOURCES = \
   src/net.c \
   src/option.c \
   src/pdu.c \
+  src/pcp_client.c \
   src/resource.c \
   src/str.c \
   src/subscribe.c \
@@ -91,6 +93,7 @@ libcoap_include_HEADERS = \
    include/coap/mem.h \
    include/coap/net.h \
    include/coap/option.h \
+   include/coap/pcp_client.h \
    include/coap/pdu.h \
    include/coap/prng.h \
    include/coap/resource.h \
@@ -113,7 +116,8 @@ libcoap_include_HEADERS = \
 libcoap_@LIBCOAP_API_VERSION@_la_LDFLAGS =					\
   -version-info $(LT_LIBCOAP_CURRENT):$(LT_LIBCOAP_REVISION):$(LT_LIBCOAP_AGE)	\
   @libcoap_SYMBOLS@ \
-  -pie
+  -pie \
+  $(AM_LDFLAGS)
 
 CTAGS_IGNORE=-I "coap_packet_extract_pbuf coap_pdu_from_pbuf"
 
