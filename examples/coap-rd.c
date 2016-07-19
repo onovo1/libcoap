@@ -212,7 +212,7 @@ add_source_address(coap_address_t *peer) {
 
     if (peer->addr.sin.sin_port != htons(COAP_DEFAULT_PORT)) {
         n =
-        snprintf(buf + sizeof(buf) + 1, BUFSIZE - sizeof(buf) - 1, ":%d", peer->addr.sin.sin_port) + sizeof(buf);
+        snprintf(buf + sizeof(buf) + n + 1, BUFSIZE - sizeof(buf) - n, ":%d", peer->addr.sin.sin_port) + sizeof(buf) + 2;
     }
     break;
 
