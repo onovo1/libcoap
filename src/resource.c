@@ -14,6 +14,7 @@
 #include "resource.h"
 #include "subscribe.h"
 #include "utlist.h"
+#include "lifetime.h"
 
 #ifdef WITH_LWIP
 /* mem.h is only needed for the string free calls for
@@ -770,6 +771,23 @@ coap_delete_all_resources(coap_context_t *context) {
   }
 
   context->resources = NULL;
+}
+
+int coap_find_same_address(coap_context_t *context, char *address) {
+
+  int number = 0;
+
+  RESOURCES_ITER(context->resources, r) {
+
+    if (r->A.s != NULL &&
+	memcmp(r->A.s+1, address, strlen(address)) == 0)
+      number++;
+
+    if (number > 1) return number;
+  }
+
+  return number;
+
 }
 
 coap_key_t *

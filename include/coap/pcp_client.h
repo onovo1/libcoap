@@ -34,14 +34,6 @@ static struct pcp_conf conf = {
  */
 int coap_create_map_rule(char *pcp_srv, uint32_t lifetime, char *ext_addr, int int_port, char *thrd_part);
 
-/** 
- * Returns the result of the creation of the MAP rule in the PCP server.
- * 
- * @return       @c 0 if everything was set right, @c >0 otherwise.
- *
- */
-int coap_pcp_resp_not_authorized(void);
-
 /** @} */
 
 #endif /* _PCP_CLIENT_H_ */

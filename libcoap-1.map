@@ -45,6 +45,7 @@ global:
   coap_find_attr;
   coap_find_link;
   coap_find_observer;
+  coap_find_same_address;
   coap_find_transaction;
   coap_fls;
   coap_free_async;
@@ -58,7 +59,6 @@ global:
   coap_get_data;
   coap_get_group_from_key;
   coap_get_log_level;
-  coap_pcp_resp_not_authorized;
   coap_get_resource_from_key;
   coap_group_rd_init;
   coap_handle_failed_notify;

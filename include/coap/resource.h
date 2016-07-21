@@ -120,6 +120,7 @@ typedef struct coap_resource_t {
   str uri;
   str A; /** The source IP address and source port of the request*/
 
+  str NAT; /** The source IP address and source port of there is a NAT involve*/
   coap_link_t *links; /**< collection of links of a single endpoint> */
 
   int flags;
@@ -261,6 +262,14 @@ void coap_free_resource(coap_resource_t *resource);
  * @param context The CoAP context with the resources to be deleted.
  */
 void coap_delete_all_resources(coap_context_t *context);
+
+/**
+ * Look for the same address in the list of resources.
+ *
+ * @param address  The address's value.
+ * @return         @c 2 if there are multiple address, @c 0 if there is only one address, @c 1 if there is only one address.
+ */
+int coap_find_same_address(coap_context_t *context, char *address);
 
 /**
  * Registers a new attribute with the given @p resource. As the

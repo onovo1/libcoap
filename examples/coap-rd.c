@@ -80,7 +80,13 @@ static int quit = 0;
 static const char *configfile = "pcp.conf";
 char pcp_server[128], external_interface[20];
 int pcp_internal_port = 5683;
-int portno = 1024;
+int pcp_nat = 0;
+int portnum = 1024;
+
+
+uint8_t *temp_nonce[PCP_NONCE_SZ]; /** Mapping Nonce  **/ 
+int nonce_initialize = 0;
+
 
 /**********************************************************/
 /***                    UTILS FUNTIONS                  ***/
@@ -105,6 +111,8 @@ static void upload_config_file(void){
     if (buff[0] == '\n' || buff[0] == '#')
       continue;
 
+    if (strstr(buff, "NAT"))
+      sscanf(buff, "%s %d\n", name, &pcp_nat);
     /* Parse name/value pair from line */
     if (strstr(buff, "pcp_server_listen"))
       sscanf(buff, "%s %s\n", name, pcp_server);
@@ -130,40 +138,19 @@ static unsigned char* concat(unsigned char *s1, unsigned char *s2)
     return result;
 }
 
-static int add_new_NAT_rule(uint32_t lifetime, char *thrd_part){
+static int find_port(int fd_rd, char *ext_int){
 
-  int fd;
-  int max_num_ports = 64511; //max number of available ports 65535-1024
-  struct ifreq ifr;
   struct hostent *server;
   struct sockaddr_in serv_addr;
-  char* ext_int;
-  char *ext_addr;
+  int max_num_ports = 64511; //max number of available ports 65535-1024
   int i;
-  char str[7];
-int err;
-
-  fd = socket(AF_INET, SOCK_DGRAM, 0);
-  if (fd < 0) {
-    debug("add_new_NAT_rule, ERROR opening socket\n");
-    return 2;
-  }
-  /* Get an IPv4 IP address */
-  ifr.ifr_addr.sa_family = AF_INET;
-
-  /* IP address attached to "external_interface" */
-  strncpy(ifr.ifr_name, external_interface, IFNAMSIZ-1);
-
-  ioctl(fd, SIOCGIFADDR, &ifr);
-
-  ext_int = inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr);
 
   /* Find a port for the external interface */
   server = gethostbyname(ext_int);
  
   if (server == NULL) {
-    debug("add_new_NAT_rule, no such host\n");
-    return 2;
+    debug("add_NAT_rule, no such host\n");
+    return -1;
   }
  
   bzero((char *) &serv_addr, sizeof(serv_addr));
@@ -172,60 +159,90 @@ int err;
        (char *)&serv_addr.sin_addr.s_addr,
        server->h_length);
  
-  portno = portno + 1;
-  serv_addr.sin_port = htons(portno);
+  portnum = portnum + 1;
+  serv_addr.sin_port = htons(portnum);
 
   for (i=0; i<max_num_ports;i++){
 
-    if (connect(fd,(struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0){
-debug("Port is closed\n");
+    if (connect(fd_rd,(struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0){
 
-      if (portno >= 65535){
-        portno = 1025;
+      if (portnum >= 65535){
+        portnum = 1025;
       } else {
-        portno = portno + 1;
+        portnum = portnum + 1;
       }
 
-      serv_addr.sin_port = htons(portno);
+      serv_addr.sin_port = htons(portnum);
     } else {
-
-      //convert port to string
-      sprintf(str, ":%d", portno);
-
-      ext_addr = (char*)concat((unsigned char*)ext_int, (unsigned char*)str);
-      printf("external address is %s\n",ext_addr);
-
-      err = coap_create_map_rule(pcp_server, lifetime, ext_addr, pcp_internal_port, thrd_part); 
-
-if (err || coap_pcp_resp_not_authorized() ) {
-
-printf("error is %i\n", coap_pcp_resp_not_authorized());
-}
       break;
     }
 
   }
 
+
   if (i == max_num_ports){
-//all ports are taken
+    debug("add_NAT_rule, all ports are taken\n");
+    return -1;
   }
 
-  close(fd);
+  return 0;
+}
 
-  //convert port to string
-/*  sprintf(str, ":%d", portno);
+static int add_NAT_rule(coap_resource_t *r, uint32_t lifetime, char *thrd_part){
 
-  ext_addr = concat((unsigned char*)ext_int, (unsigned char*)str);
-printf("external address is %s\n",ext_addr);
-*/
-//ext_int
-//portno
-  /* display result */
-  //printf("%s\n", inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr));
+  int fd_rd, err=0;
+  struct ifreq ifr;
+  char *ext_int, *ext_addr=NULL;
+  char str[7];
 
-//  return (inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr));
-return(err);
-//  return(coap_create_map_rule(pcp_server, lifetime, "10.0.0.210:3000", pcp_internal_port, thrd_part));
+  fd_rd = socket(AF_INET, SOCK_DGRAM, 0);
+  if (fd_rd < 0) {
+    debug("add_NAT_rule, ERROR opening socket\n");
+    return 2;
+  }
+
+  /* Get an IPv4 IP address */
+  ifr.ifr_addr.sa_family = AF_INET;
+
+  /* IP address attached to "external_interface" */
+  strncpy(ifr.ifr_name, external_interface, IFNAMSIZ-1);
+
+  ioctl(fd_rd, SIOCGIFADDR, &ifr);
+
+  ext_int = inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr);
+
+  if (lifetime == 0){
+
+    //convert port to string
+    sprintf(str, ":%d", 0);
+
+    ext_addr = (char*)concat((unsigned char*)ext_int, (unsigned char*)str);
+
+    err = coap_create_map_rule(pcp_server, lifetime, ext_addr, pcp_internal_port, thrd_part);
+
+//  coap_create_map_rule("10.0.0.210:5351", 7200, "10.0.0.210:3000", 5683, "192.168.0.2");
+//  coap_create_map_rule(char *pcp_srv, uint32_t lifetime, char *ext_addr, int int_port, char *thrd_part){
+
+  } else {
+    if (find_port(fd_rd, ext_int)==0){
+
+      //convert port to string
+      sprintf(str, ":%d", portnum);
+
+      ext_addr = (char*)concat((unsigned char*)ext_int, (unsigned char*)str);
+
+      err = coap_create_map_rule(pcp_server, lifetime, ext_addr, pcp_internal_port, thrd_part);
+
+      if (err==0){
+        r->NAT.s= (unsigned char *)ext_addr;
+        r->NAT.length= strlen(ext_addr);
+      }
+    }
+  }
+
+  close(fd_rd);
+
+  return(err);
   
 }
 
@@ -238,7 +255,12 @@ set_timeout(coap_tick_t *timer, const unsigned int seconds) {
 /* SIGINT handler: set quit to 1 for graceful termination */
 static void
 handle_sigint(int signum UNUSED_PARAM) {
+
+  if (pcp_nat)
+	  re_cancel();
+
   quit = 1;
+
 }
 
 // Remove the spaces and stores the trimmed input string into an output buffer
@@ -1789,6 +1811,11 @@ hnd_delete_resource(coap_context_t  *ctx,
                     str *token UNUSED_PARAM,
                     coap_pdu_t *response) {
 
+  /* Delete rule in the NAT table*/
+  if (pcp_nat && (coap_find_same_address(ctx, get_source_address(peer)) <= 1)){
+    add_NAT_rule(NULL, 0, get_source_address(peer));
+  }
+
   if (coap_delete_resource(ctx, resource->key)) {
     response->hdr->code = COAP_RESPONSE_CODE(202);
   } else {
@@ -1875,15 +1902,23 @@ lookup_print_endpoint(coap_resource_t *r, unsigned char *buf, const unsigned cha
 
     PRINT_COND_WITH_OFFSET(buf, bufend, *offset, '<', *len);
 
-    attr = coap_find_attr(r, (const unsigned char *)"con", 3);
-    if (attr) {
-     	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
-                    			  (attr->value.s == 0) ? NULL : (attr->value.s+1), 
-                            (attr->value.length == 0) ? 0 : (attr->value.length-2), *len);
-    } else {
+    if (pcp_nat && (r->NAT.s)){
       COPY_COND_WITH_OFFSET(buf, bufend, *offset, "coap://", 8, *len);
-     	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
-                    			  r->A.s+1, r->A.length-2, *len);
+
+      COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+                    			  r->NAT.s, r->NAT.length, *len);
+    } else {
+      attr = coap_find_attr(r, (const unsigned char *)"con", 3);
+      if (attr) {
+     	  COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+                      			  (attr->value.s == 0) ? NULL : (attr->value.s+1), 
+                              (attr->value.length == 0) ? 0 : (attr->value.length-2), *len);
+      } else {
+        COPY_COND_WITH_OFFSET(buf, bufend, *offset, "coap://", 8, *len);
+
+     	  COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+                      			  r->A.s+1, r->A.length-2, *len);
+      }
     }
 
     if (lk_type != RES) {
@@ -2787,29 +2822,17 @@ hnd_post_rd(coap_context_t  *ctx,
       return;
   }
 
+  /* Create rule in the NAT table*/
+  if (pcp_nat && (coap_find_same_address(ctx, get_source_address(peer)) == 0)){
+    add_NAT_rule(r, time, get_source_address(peer));
+  }
+
   if (delete) {
     coap_delete_resource(ctx, (unsigned char *)resource_key);
   }
   coap_free(resource_key);
 
   coap_add_resource(ctx, r);
-
- /* display result */
- //printf("%s\n", inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr));
-/*display result*/
-
-//printf("r is %s\n", r->A.s);
-//printf("A is %s\n", get_source_address(peer));
-
-//  printf("%s, %zd\n",upload_external_interface_to_address(), strlen(upload_external_interface_to_address()));
-
-//TODO: Check first if the sensor already has some open ports. 
-
-  add_new_NAT_rule(time, get_source_address(peer));
-
-//  coap_create_map_rule(pcp_server, time, "10.0.0.210:3000", pcp_internal_port, get_source_address(peer));
-//  coap_create_map_rule("10.0.0.210:5351", 7200, "10.0.0.210:3000", 5683, "192.168.0.2");
-//  coap_create_map_rule(char *pcp_srv, uint32_t lifetime, char *ext_addr, int int_port, char *thrd_part){
 
   /* create response */
 
