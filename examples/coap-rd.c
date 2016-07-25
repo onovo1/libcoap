@@ -77,7 +77,8 @@ coap_tick_t max_wait;                   /* global timeout (changed by set_timeou
 /* temporary storage for dynamic resource representations */
 static int quit = 0;
 
-static const char *configfile = "pcp.conf";
+static const char *configfile = "./pcp.conf";
+static const char *configfile_ = "../pcp.conf";
 char pcp_server[128], external_interface[20];
 int pcp_internal_port = 5683;
 int pcp_nat = 0;
@@ -99,7 +100,7 @@ static void upload_config_file(void){
   char name[80];
 
   /* configuration file */
-  if((fp = fopen(configfile, "r")) == NULL) {
+  if(((fp = fopen(configfile, "r")) == NULL) && ((fp = fopen(configfile_, "r")) == NULL)) {
     fprintf(stderr, "error loading configuration: %s\n", configfile);
         exit(1);
   }
@@ -149,7 +150,7 @@ static int find_port(int fd_rd, char *ext_int){
   server = gethostbyname(ext_int);
  
   if (server == NULL) {
-    debug("add_NAT_rule, no such host\n");
+    debug("find_port, no such host\n");
     return -1;
   }
  
@@ -181,19 +182,20 @@ static int find_port(int fd_rd, char *ext_int){
 
 
   if (i == max_num_ports){
-    debug("add_NAT_rule, all ports are taken\n");
+    debug("find_port, all ports are taken\n");
     return -1;
   }
 
   return 0;
 }
 
-static int add_NAT_rule(coap_resource_t *r, uint32_t lifetime, char *thrd_part){
+static int add_NAT_rule(coap_resource_t *r, uint32_t lifetime, char *thrd_part, char *ext_addr_NAT, time_t sec){
 
   int fd_rd, err=0;
   struct ifreq ifr;
   char *ext_int, *ext_addr=NULL;
   char str[7];
+  int len1;
 
   fd_rd = socket(AF_INET, SOCK_DGRAM, 0);
   if (fd_rd < 0) {
@@ -212,31 +214,71 @@ static int add_NAT_rule(coap_resource_t *r, uint32_t lifetime, char *thrd_part){
   ext_int = inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr);
 
   if (lifetime == 0){
+    // delete a mapping
 
-    //convert port to string
-    sprintf(str, ":%d", 0);
-
-    ext_addr = (char*)concat((unsigned char*)ext_int, (unsigned char*)str);
-
-    err = coap_create_map_rule(pcp_server, lifetime, ext_addr, pcp_internal_port, thrd_part);
+    err = coap_create_map_rule(pcp_server, 0, ext_addr_NAT, pcp_internal_port, thrd_part);
 
 //  coap_create_map_rule("10.0.0.210:5351", 7200, "10.0.0.210:3000", 5683, "192.168.0.2");
 //  coap_create_map_rule(char *pcp_srv, uint32_t lifetime, char *ext_addr, int int_port, char *thrd_part){
 
   } else {
-    if (find_port(fd_rd, ext_int)==0){
+    // add o refresh a mapping
 
-      //convert port to string
-      sprintf(str, ":%d", portnum);
+    if (ext_addr_NAT == NULL){
+      // add mapping
 
-      ext_addr = (char*)concat((unsigned char*)ext_int, (unsigned char*)str);
+      if (find_port(fd_rd, ext_int)==0){
+        //convert port to string
+        sprintf(str, ":%d", portnum);
+
+        ext_addr = (char*)concat((unsigned char*)ext_int, (unsigned char*)str);
+        if (ext_addr == NULL) return 2;
+
+        err = coap_create_map_rule(pcp_server, lifetime, ext_addr, pcp_internal_port, thrd_part);
+
+        if (r->NAT.s!=NULL)
+           coap_free(r->NAT.s);
+
+        if (err==0){
+          r->NAT.s= (unsigned char *)ext_addr;
+          r->NAT.length= strlen(ext_addr);
+          r->NAT_lifetime= sec;
+        } else {
+          r->NAT.s= NULL;
+          r->NAT.length= 0;
+          r->NAT_lifetime= 0;
+          coap_free(ext_addr);
+        }
+      }
+
+    } else {
+    // refresh mapping
+
+      len1 = strlen((char *)ext_addr_NAT);
+
+      ext_addr = (char *) coap_malloc(len1 +1);//+1 for the zero-terminator
+      if (!ext_addr) return 2;
+
+      memcpy(ext_addr, ext_addr_NAT, len1+1);//+1 to copy the null-terminator
+
+      //First delete the previous mapping before adding the new one
+      err = coap_create_map_rule(pcp_server, 0, ext_addr, pcp_internal_port, thrd_part);
 
       err = coap_create_map_rule(pcp_server, lifetime, ext_addr, pcp_internal_port, thrd_part);
+
+      if (r->NAT.s!=NULL)
+        coap_free(r->NAT.s);
 
       if (err==0){
         r->NAT.s= (unsigned char *)ext_addr;
         r->NAT.length= strlen(ext_addr);
-      }
+        r->NAT_lifetime= sec;
+      } else {
+          r->NAT.s= NULL;
+          r->NAT.length= 0;
+          r->NAT_lifetime= 0;
+          coap_free(ext_addr);
+        }
     }
   }
 
@@ -357,6 +399,7 @@ get_source_address(coap_address_t *peer) {
 #define BUFSIZE 64
 
   char *buf;
+  //char buf[64];
   size_t n = 0;
 
   buf = (char *)coap_malloc(BUFSIZE);
@@ -569,6 +612,7 @@ coap_process_block1(coap_pdu_t *request, coap_pdu_t *response){
 
           if (s == NULL){
             debug("coap_process_block1: error in memory\n");
+            coap_free(s);
             response->hdr->code = COAP_RESPONSE_CODE(503);
             return NULL;
           }
@@ -1645,7 +1689,7 @@ hnd_post_resource(coap_context_t  *ctx UNUSED_PARAM,
                  coap_pdu_t *response) {
 
   coap_opt_iterator_t opt_iter;
-  coap_opt_t *query, *block_opt = NULL; 
+  coap_opt_t *query = NULL, *block_opt = NULL; 
   coap_opt_filter_t filter;
   str lt = {0, NULL}, con = {0, NULL}; /* store query parameters */
   unsigned char *buf, *payload=NULL, block_buf[4];
@@ -1655,6 +1699,9 @@ hnd_post_resource(coap_context_t  *ctx UNUSED_PARAM,
   int val_offset = 0;
   size_t payload_length;
   coap_block1_t *result = NULL;
+  time_t sec;
+  char *ext_addr = NULL;
+  char *address_peer = NULL;
 
   /* Got some data, check if block1 option is set. */
   block_opt = coap_check_option(request, COAP_OPTION_BLOCK1, &opt_iter);
@@ -1689,6 +1736,7 @@ hnd_post_resource(coap_context_t  *ctx UNUSED_PARAM,
     }
       
     memcpy(buf_op, coap_opt_value(query), length);
+    // add \0 to the end of the payload 
     buf_op[length] = '\0';
 
     cp = strsep (&buf_op, seps);
@@ -1703,7 +1751,7 @@ hnd_post_resource(coap_context_t  *ctx UNUSED_PARAM,
       }
       if (strcmp(cp, "lt") == 0) {
           lt.s= (unsigned char *) coap_opt_value(query) + val_offset;
-          lt.length= strlen(buf_op);        
+          lt.length= strlen(buf_op);
       } else if (strcmp(cp, "con") == 0) {
           con.s= (unsigned char *) coap_opt_value(query) + val_offset;
           con.length= strlen(buf_op);        
@@ -1719,26 +1767,83 @@ hnd_post_resource(coap_context_t  *ctx UNUSED_PARAM,
 
   /* Update expiration to the resource */
 
-  unsigned long time = 86400;
+  unsigned long ltime = 86400;
 
   if (lt.length) {
-    char* end = NULL;
-    errno = 0;    /* To distinguish success/failure after call */
-    time = strtol((const char *)lt.s, &end, 10);
 
-    if ((time > UINT_MAX) || (time < 60) || (errno == ERANGE && (time == LONG_MAX || time == 0))
-                   || (errno != 0 && time == 0)) {
+    char *time_s = NULL, *end = NULL;
+    time_s = coap_malloc(lt.length+1);
+    if (!time_s) {
+      response->hdr->code = COAP_RESPONSE_CODE(503);
+      return;
+    }
+    memcpy(time_s, lt.s, lt.length);
+    time_s[lt.length] = 0;
+
+    errno = 0;    /* To distinguish success/failure after call */
+    ltime = strtol((const char *)time_s, &end, 10);
+
+    if ((ltime > UINT_MAX) || (ltime < 60) || (errno == ERANGE && (ltime == LONG_MAX || ltime == 0))
+                   || (errno != 0 && ltime == 0)) {
       /* Out of range, create response error */
       debug("hnd_post_rd: lt is out of range\n");
       response->hdr->code = COAP_RESPONSE_CODE(400);
+      coap_free(time_s);
       return;
     }
 
-    if (end != (const char *)lt.s) {
-      coap_update_lifetime(ctx, resource, time);
+    if (end != (const char *)time_s) {
+      coap_update_lifetime(ctx, resource, ltime);
     }
+
+    coap_free(time_s);
+
   } else {
-    coap_update_lifetime(ctx, resource, time);
+    coap_update_lifetime(ctx, resource, ltime);
+  }
+
+  /*Update rule in the NAT table too*/
+  if (pcp_nat){  
+    /* Current time in seconds */
+    sec = time(NULL);
+
+    sec = sec + (time_t)ltime;
+
+    //store old value of the lt
+    int old_lt = resource->NAT_lifetime; 
+    
+    //modify the value of the NAT_lifetime with the new lt
+    resource->NAT_lifetime= sec;
+
+    address_peer = get_source_address(peer);
+    /* Create rule in the NAT table*/
+    if (coap_find_same_address(ctx, address_peer, sec, &ext_addr)){
+      add_NAT_rule(resource, ltime, address_peer, ext_addr, sec);
+    } else {
+
+      if (old_lt>sec){
+        //modify the NATTING with the new lt
+        add_NAT_rule(resource, ltime, address_peer, ext_addr, sec);
+      } else {
+        //Copy the NATTING information into the node
+        if (ext_addr){
+          int len = strlen((char *)ext_addr);
+
+          char *NAT_addr = (char *) coap_malloc(len +1);//+1 for the zero-terminator
+          if (!NAT_addr) return;
+
+          memcpy(NAT_addr, ext_addr, len+1);//+1 to copy the null-terminator
+
+          if (resource->NAT.s!=NULL)
+            coap_free(resource->NAT.s);
+
+          resource->NAT.s= (unsigned char *)NAT_addr;
+          resource->NAT.length= strlen(NAT_addr);
+          resource->NAT_lifetime= sec;
+        }
+      }
+    }
+    coap_free(address_peer); 
   }
 
   
@@ -1810,10 +1915,16 @@ hnd_delete_resource(coap_context_t  *ctx,
                     coap_pdu_t *request UNUSED_PARAM,
                     str *token UNUSED_PARAM,
                     coap_pdu_t *response) {
+  char *ext_addr = NULL;
+  char *address_peer = NULL;
 
-  /* Delete rule in the NAT table*/
-  if (pcp_nat && (coap_find_same_address(ctx, get_source_address(peer)) <= 1)){
-    add_NAT_rule(NULL, 0, get_source_address(peer));
+  /* Delete rule in the NAT table only if there is a resource with that IP in the list*/
+  if (pcp_nat){
+    address_peer = get_source_address(peer);
+    if (coap_find_same_address(ctx, address_peer, 0, &ext_addr)){
+      add_NAT_rule(NULL, 0, address_peer, ext_addr, 0);
+    }
+    coap_free(address_peer);
   }
 
   if (coap_delete_resource(ctx, resource->key)) {
@@ -2512,10 +2623,12 @@ hnd_post_rd(coap_context_t  *ctx,
   str rt = {0, NULL}, lt = {0, NULL}, ep = {0, NULL}, d = {0, NULL}, et = {0, NULL}, con = {0, NULL}; /* store query parameters */
   coap_key_t *resource_key = {0};
 
-  char *cp, *buf_address, *buf_op, seps[] = "=";
+  char *cp, *buf_address, *buf_op, seps[] = "=", *ext_addr = NULL;
   int val_offset = 0, delete = 0;
-
+  time_t sec;
+  char *address_peer = NULL;
   coap_block1_t *result= NULL;
+  char *NAT_addr = NULL;
 
   /* Got some data, check if block1 option is set. */
   block_opt = coap_check_option(request, COAP_OPTION_BLOCK1, &opt_iter);
@@ -2639,7 +2752,7 @@ hnd_post_rd(coap_context_t  *ctx,
 
   /* Add expiration to the resource */
 
-  unsigned long time = 86400;
+  unsigned long ltime = 86400;
 
   if ((lt.length)) {
     char *time_s = NULL, *end = NULL;
@@ -2655,10 +2768,10 @@ hnd_post_rd(coap_context_t  *ctx,
     time_s[lt.length] = 0;
     errno = 0; /* To distinguish success/failure after call */
 
-    time = strtol((const char *)time_s, &end, 10);
+    ltime = strtol((const char *)time_s, &end, 10);
 
-    if ((time > UINT_MAX) || (time < 60) || (errno == ERANGE && (time == LONG_MAX || time == 0))
-                   || (errno != 0 && time == 0)) {
+    if ((ltime > UINT_MAX) || (ltime < 60) || (errno == ERANGE && (ltime == LONG_MAX || ltime == 0))
+                   || (errno != 0 && ltime == 0)) {
       /* Out of range, create response error */
       debug("hnd_post_rd: lt is out of range\n");
       response->hdr->code = COAP_RESPONSE_CODE(400);
@@ -2669,13 +2782,13 @@ hnd_post_rd(coap_context_t  *ctx,
     }
 
     if (end != (const char *)time_s) {
-      coap_add_lifetime(ctx, r,time);
+      coap_add_lifetime(ctx, r,ltime);
     }
 
     coap_free(time_s);
 
   } else {
-    coap_add_lifetime(ctx, r,time);
+    coap_add_lifetime(ctx, r,ltime);
   }
 
 
@@ -2823,8 +2936,33 @@ hnd_post_rd(coap_context_t  *ctx,
   }
 
   /* Create rule in the NAT table*/
-  if (pcp_nat && (coap_find_same_address(ctx, get_source_address(peer)) == 0)){
-    add_NAT_rule(r, time, get_source_address(peer));
+  if (pcp_nat){
+
+    /* Current time in seconds */
+    sec = time(NULL);
+
+    sec = sec + (time_t)ltime;
+
+    address_peer = get_source_address(peer);
+
+    if (coap_find_same_address(ctx, address_peer, sec, &ext_addr)){
+      add_NAT_rule(r, ltime, address_peer, ext_addr, sec);
+    } else {
+      //Copy the NATTING information into the node
+      if (ext_addr){
+        int len = strlen((char *)ext_addr);
+
+        NAT_addr = (char *) coap_malloc(len +1);//+1 for the zero-terminator
+        if (!NAT_addr) return;
+
+        memcpy(NAT_addr, ext_addr, len+1);//+1 to copy the null-terminator
+
+        r->NAT.s= (unsigned char *)NAT_addr;
+        r->NAT.length= strlen(NAT_addr);
+        r->NAT_lifetime= sec;
+      }
+    }
+    coap_free(address_peer);
   }
 
   if (delete) {

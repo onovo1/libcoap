@@ -17,7 +17,7 @@ static void pcp_resp_handler(int err, struct pcp_msg *msg, void *arg)
 	//const struct pcp_peer *peer = pcp_msg_payload(msg);
 	(void)arg;
 
-	//re_printf("PCP Response: %H\n", pcp_msg_print, msg);
+//	re_printf("PCP Response: %H\n", pcp_msg_print, msg);
 
 	if (err) {
 		debug("PCP error response: %m\n", err);
@@ -80,6 +80,9 @@ int coap_create_map_rule(char *pcp_srv, uint32_t lifetime, char *ext_addr, int i
 		return 2;
 	}
 	peer.map.int_port = int_port;
+ 
+	/* Maximum retransmission duration*/
+	conf.mrd = 4; 
 
 /*re_printf("lifetime = %u sec, pcp_server = %J, protocol = %s, internal_port = %u, external = %J, T = %j\n",
 			  lifetime, &pcp_server, pcp_proto_name(peer.map.proto),

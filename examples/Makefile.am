@@ -14,7 +14,7 @@ AM_LDFLAGS = $(RE_LIBS) $(REW_LIBS)
 
 
 # etsi_iot_01 and tiny are missing
-bin_PROGRAMS = coap-client coap-server coap-rd
+bin_PROGRAMS = coap-client coap-server coap-rd coap-client-mod
 
 coap_client_SOURCES = client.c coap_list.c
 coap_client_LDADD = @top_builddir@/.libs/libcoap-$(LIBCOAP_API_VERSION).la
@@ -24,6 +24,9 @@ coap_server_LDADD = @top_builddir@/.libs/libcoap-$(LIBCOAP_API_VERSION).la
 
 coap_rd_SOURCES = coap-rd.c mjson.c rd_list_elements.c
 coap_rd_LDADD = @top_builddir@/.libs/libcoap-$(LIBCOAP_API_VERSION).la
+
+coap_client_mod_SOURCES = coap-client-mod.c coap_list.c
+coap_client_mod_LDADD = @top_builddir@/.libs/libcoap-$(LIBCOAP_API_VERSION).la
 
 # build manuals only if 'BUILD_DOCUMENTATION' is defined
 if BUILD_DOCUMENTATION

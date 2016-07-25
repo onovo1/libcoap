@@ -581,22 +581,6 @@ coap_resource_init(const unsigned char *uri, size_t len, int flags) {
   return r;
 }
 
-/*void
-coap_add_lifetime(coap_resource_t *resource, 
-              unsigned long time_sec) {
-
-  if (!resource)
-    return;
-*/
-  /* Current time in seconds */
-/*  time_t sec = time(0);
-
-  sec = sec + (time_t)time_sec;
-
-  resource->lifetime = sec;
-
-}*/
-
 coap_attr_t *
 coap_add_attr(coap_resource_t *resource, 
 	      const unsigned char *name, size_t nlen,
@@ -717,6 +701,10 @@ coap_free_resource(coap_resource_t *resource) {
   if (resource->A.s!=NULL)
     coap_free(resource->A.s);
 
+  /*release the NAT information*/
+  if (resource->NAT.s!=NULL)
+    coap_free(resource->NAT.s);
+
   /* free all elements from resource->subscribers */
   LL_FOREACH_SAFE(resource->subscribers, obs, otmp) COAP_FREE_TYPE(subscription, obs);
 
@@ -773,20 +761,40 @@ coap_delete_all_resources(coap_context_t *context) {
   context->resources = NULL;
 }
 
-int coap_find_same_address(coap_context_t *context, char *address) {
+int coap_find_same_address(coap_context_t *context, char *address, time_t sec, char **ext_addr) {
 
   int number = 0;
 
+  //Initialize the external address
+  *ext_addr = NULL;
+
   RESOURCES_ITER(context->resources, r) {
 
-    if (r->A.s != NULL &&
-	memcmp(r->A.s+1, address, strlen(address)) == 0)
-      number++;
+    if ((r->A.s != NULL) &&
+      (memcmp(r->A.s+1, address, strlen(address)) == 0)){
 
-    if (number > 1) return number;
+      //Find one element
+      number ++;
+      if(sec == 0){
+        *ext_addr=r->NAT.s;
+        if (number > 1) return 0;
+      } else if (sec > r->NAT_lifetime){
+        *ext_addr=r->NAT.s;
+        return 1;
+      } else {
+        *ext_addr=r->NAT.s;
+        return 0;
+      }
+    }
   }
 
-  return number;
+  if (sec == 0){
+    if (number >= 1) return 1;
+  } else {
+    if (number == 0) return 1;
+  }
+
+  return 0;
 
 }
 

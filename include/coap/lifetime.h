@@ -15,6 +15,8 @@
 #ifndef LIFETIME_H
 #define LIFETIME_H
 
+#include <stdio.h>
+
 #include "resource.h"
 
 typedef struct coap_lifetime_t {

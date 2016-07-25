@@ -15,7 +15,8 @@
 #ifndef _COAP_RESOURCE_H_
 #define _COAP_RESOURCE_H_
 
-# include <assert.h>
+#include <assert.h>
+#include <stdio.h>
 
 #ifndef COAP_RESOURCE_CHECK_TIME
 /** The interval in seconds to check if resources have changed. */
@@ -121,6 +122,8 @@ typedef struct coap_resource_t {
   str A; /** The source IP address and source port of the request*/
 
   str NAT; /** The source IP address and source port of there is a NAT involve*/
+  time_t NAT_lifetime;/** Lifetime of the NAT rule*/
+
   coap_link_t *links; /**< collection of links of a single endpoint> */
 
   int flags;
@@ -264,12 +267,18 @@ void coap_free_resource(coap_resource_t *resource);
 void coap_delete_all_resources(coap_context_t *context);
 
 /**
- * Look for the same address in the list of resources.
+ * Look for the same address and bigger lifetime in the list of resources. If @c sec is 0, it looks only for one resource in the list with the
+ * same address and returns true if only finds one. If @c sec is >0, it looks for resources with the lifetime smaller than @c sec and it 
+ * stores in @c ext_addr the resource with the smaller lifetime. 
  *
+ * @param context  The context where the resources are store.
  * @param address  The address's value.
- * @return         @c 2 if there are multiple address, @c 0 if there is only one address, @c 1 if there is only one address.
+ * @param sec      The lifetime in seconds of the resource.
+ * @param ext_addr The lifetime in seconds of the resource.
+ * @return         @c 1 if there are no resources or there are resources but don't meet the lifetime's filter or in case of deletion there's 
+ *                 only one resource. @c 0 otherwise
  */
-int coap_find_same_address(coap_context_t *context, char *address);
+int coap_find_same_address(coap_context_t *context, char *address, time_t sec, char **ext_addr);
 
 /**
  * Registers a new attribute with the given @p resource. As the
