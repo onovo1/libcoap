@@ -505,8 +505,7 @@ coap_network_read(coap_endpoint_t *ep, coap_packet_t **packet) {
 
 	(*packet)->src.size = mhdr.msg_namelen;
 
-        //TODO comment it since Balgrind was complaining "Source and destination overlap in memcpy"
-	//memcpy(&(*packet)->src.addr.st, mhdr.msg_name, (*packet)->src.size);
+	memcpy(&(*packet)->src.addr.st, mhdr.msg_name, (*packet)->src.size);
 
 	break;
       }

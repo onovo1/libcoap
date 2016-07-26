@@ -994,9 +994,6 @@ static int
 cmdline_input(char *text, str *buf) {
   int len;
   len = check_segment((unsigned char *)text, strlen(text));
-printf("strlen(text) %i\n", strlen(text));
-printf("text %s\n", text);
-printf("len %i\n", len);
 
   if (len < 0)
     return 0;
