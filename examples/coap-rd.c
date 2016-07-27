@@ -35,7 +35,7 @@
 #include "pcp_client.h"
 
 //TODO file included only for testing proposed
-#include "rd_list_elements.h"
+//#include "rd_list_elements.h"
 
 #include "mjson.h"
 #include <errno.h>
