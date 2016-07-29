@@ -252,24 +252,41 @@ fi
 AM_CONDITIONAL(BUILD_EXAMPLES, [test "x$build_examples" = "xyes"])
 
 # configure options
+# __Mod_client__
+AC_ARG_ENABLE([modclient],
+              [AC_HELP_STRING([--enable-modclient],
+              [Enable building only the modified Client (default=yes)])],
+              [build_modclient="yes"],
+              [build_modclient="no"])
+
+# configure options
 # __RE_and_REW__
 
-# For RE
-PKG_CHECK_MODULES([RE],[libre])
+if test "x$build_modclient" = "xno"; then
+	# It only build the modified client. It does not need to compile the rew or re functions.
+	# For RE
+	PKG_CHECK_MODULES([RE],[libre])
 
-# For REW
+	# For REW
 
-AC_ARG_WITH([rew], [AS_HELP_STRING([--with-rew],[Installation path of librew])], [rew_path="$withval"])
-# check for "" -> error
-if test "x$rew_path" = "x"; then
-	AC_MSG_ERROR([==> Librew must be installed and the --with-rew path must be include in the configure file!])
+	AC_ARG_WITH([rew], [AS_HELP_STRING([--with-rew],[Installation path of librew])], [rew_path="$withval"])
+	# check for "" -> error
+	if test "x$rew_path" = "x"; then
+		AC_MSG_ERROR([==> Librew must be installed and the --with-rew path must be include in the configure file!])
+	fi
+
+	REW_CFLAGS="-I$rew_path/include"
+	REW_LIBS="-L$rew_path -lrew"
+
+	AC_SUBST(REW_LIBS)
+	AC_SUBST(REW_CFLAGS)
+
+	AM_CONDITIONAL(BUILD_MODCLIENT, [false])
+
+else 
+	AM_CONDITIONAL(BUILD_MODCLIENT, [true])
+
 fi
-
-REW_CFLAGS="-I$rew_path/include"
-REW_LIBS="-L$rew_path -lrew"
-
-AC_SUBST(REW_LIBS)
-AC_SUBST(REW_CFLAGS)
 
 # end configure options
 #######################

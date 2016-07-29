@@ -85,8 +85,8 @@ int pcp_nat = 0;
 int portnum = 1024;
 
 
-uint8_t *temp_nonce[PCP_NONCE_SZ]; /** Mapping Nonce  **/ 
-int nonce_initialize = 0;
+//uint8_t *temp_nonce[PCP_NONCE_SZ]; /** Mapping Nonce  **/ 
+//int nonce_initialize = 0;
 
 
 /**********************************************************/

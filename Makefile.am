@@ -21,7 +21,8 @@ EXTRA_DIST = \
   libcoap-$(LIBCOAP_API_VERSION).sym \
   examples/coap_list.h \
   ## TODO: remove rd_list_elements.c later, debugging purpose only
-  examples/rd_list_elements.c \
+  examples/rd_list_elements.h \
+  examples/pcp_client.h \
   tests/test_options.h \
   tests/test_pdu.h \
   tests/test_error_response.h \
@@ -29,8 +30,9 @@ EXTRA_DIST = \
   tests/test_uri.h \
   tests/test_wellknown.h
 
-AM_CFLAGS = -I @top_builddir@/include/coap/ $(RE_CFLAGS) $(REW_CFLAGS) -std=c99 $(WARNING_FLAGS)
-AM_LDFLAGS = $(RE_LIBS) $(REW_LIBS) 
+##AM_CFLAGS = -I @top_builddir@/include/coap/ $(RE_CFLAGS) $(REW_CFLAGS) -std=c99 $(WARNING_FLAGS)
+AM_CFLAGS = -I @top_builddir@/include/coap/ -std=c99 $(WARNING_FLAGS)
+##AM_LDFLAGS = $(RE_LIBS) $(REW_LIBS) 
 
 SUBDIRS = . $(DOC_DIR) tests examples
 
@@ -65,7 +67,6 @@ libcoap_@LIBCOAP_API_VERSION@_la_SOURCES = \
   src/net.c \
   src/option.c \
   src/pdu.c \
-  src/pcp_client.c \
   src/resource.c \
   src/str.c \
   src/subscribe.c \
@@ -93,7 +94,6 @@ libcoap_include_HEADERS = \
    include/coap/mem.h \
    include/coap/net.h \
    include/coap/option.h \
-   include/coap/pcp_client.h \
    include/coap/pdu.h \
    include/coap/prng.h \
    include/coap/resource.h \
