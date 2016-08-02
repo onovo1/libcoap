@@ -1267,7 +1267,7 @@ static int parse_link_format(char *s, coap_resource_t *r, int update){
                 coap_free(buf);
               }
             }  
-     
+
             /* Create new link struct */
             coap_add_link(r, href, ct, rt, ifd, rel, ins, exp);
 
@@ -2905,7 +2905,7 @@ hnd_post_rd(coap_context_t  *ctx,
     if (request->data){
       if (coap_get_data(request, &payload_length, &payload)) {
         if (payload) {
-          // add \0 to the end of the payload 
+          // add \0 to the end of the payload
           payload[payload_length-1] = '\0';
         }
       }
@@ -2945,6 +2945,10 @@ hnd_post_rd(coap_context_t  *ctx,
     address_peer = get_source_address(peer);
 
     if (coap_find_same_address(ctx, address_peer, sec, &ext_addr)){
+      //Delete first the previous NATTING rule
+      if (ext_addr!=NULL)
+        add_NAT_rule(NULL, 0, address_peer, ext_addr, 0);
+      //Add it again
       add_NAT_rule(r, ltime, address_peer, ext_addr, sec);
     } else {
       //Copy the NATTING information into the node
@@ -2968,11 +2972,9 @@ hnd_post_rd(coap_context_t  *ctx,
     coap_delete_resource(ctx, (unsigned char *)resource_key);
   }
   coap_free(resource_key);
-
   coap_add_resource(ctx, r);
 
   /* create response */
-
   response->hdr->code = COAP_RESPONSE_CODE(201);
 
   /* split path into segments and add Location-Path options */

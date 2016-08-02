@@ -84,7 +84,7 @@ handle_sigint(int signum UNUSED_PARAM) {
               "Copyright (C) 2010--2016 Olaf Bergmann <bergmann@tzi.org>\n\n"
 
 #define RESOURCE "C: 17 Cel\n" \
-              "\n\n"
+              "\n"
 
 static void
 hnd_get_index(coap_context_t *ctx UNUSED_PARAM,
