@@ -211,8 +211,8 @@ add_source_address(coap_address_t *peer) {
     inet_ntop(AF_INET, &(peer->addr.sin.sin_addr.s_addr), buf+1, 16);
 
     if (peer->addr.sin.sin_port != htons(COAP_DEFAULT_PORT)) {
-        n =
-        snprintf(buf + sizeof(buf) + n + 1, BUFSIZE - sizeof(buf) - n, ":%d", peer->addr.sin.sin_port) + sizeof(buf) + 2;
+        n = strlen(buf) +
+        snprintf(buf + strlen(buf), BUFSIZE - strlen(buf), ":%d", peer->addr.sin.sin_port);
     }
     break;
 
