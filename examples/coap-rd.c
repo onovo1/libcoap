@@ -399,7 +399,6 @@ get_source_address(coap_address_t *peer) {
 #define BUFSIZE 64
 
   char *buf;
-  //char buf[64];
   size_t n = 0;
 
   buf = (char *)coap_malloc(BUFSIZE);
@@ -412,7 +411,7 @@ get_source_address(coap_address_t *peer) {
 
     inet_ntop(AF_INET, &(peer->addr.sin.sin_addr.s_addr), buf, 16);
 
-    n = sizeof(buf) + 1;
+    n = strlen(buf) + 1;
     break;
 
   case AF_INET6:
@@ -472,8 +471,8 @@ add_source_address(coap_address_t *peer) {
     inet_ntop(AF_INET, &(peer->addr.sin.sin_addr.s_addr), buf+n, 16);
 
     if (peer->addr.sin.sin_port != htons(COAP_DEFAULT_PORT)) {
-        n =
-        snprintf(buf + sizeof(buf) + n + 1, BUFSIZE - sizeof(buf) -n, ":%d", peer->addr.sin.sin_port) + sizeof(buf) + 2;
+        n = strlen(buf) +
+        snprintf(buf + strlen(buf), BUFSIZE - strlen(buf), ":%d", peer->addr.sin.sin_port);
     }
     break;
 
