@@ -500,7 +500,7 @@ add_source_address(coap_address_t *peer) {
 
     if (peer->addr.sin6.sin6_port != htons(COAP_DEFAULT_PORT)) {
       n +=
-      snprintf(buf + n, BUFSIZE - n, ":%d", peer->addr.sin6.sin6_port);
+      snprintf(buf + n, BUFSIZE - n, ":%d", peer->addr.sin6.sin6_port) +1;
     }
     break;
 
