@@ -208,12 +208,15 @@ add_source_address(coap_address_t *peer) {
   case AF_INET:
 
     //buf = 
-    inet_ntop(AF_INET, &(peer->addr.sin.sin_addr.s_addr), buf+1, 16);
+    inet_ntop(AF_INET, &(peer->addr.sin.sin_addr.s_addr), buf+n, 16);
+
+    n += strlen(buf);
 
     if (peer->addr.sin.sin_port != htons(COAP_DEFAULT_PORT)) {
-        n = strlen(buf) +
-        snprintf(buf + strlen(buf), BUFSIZE - strlen(buf), ":%d", peer->addr.sin.sin_port);
+        n +=
+        snprintf(buf + n -1, BUFSIZE - n +1, ":%d", peer->addr.sin.sin_port);
     }
+
     break;
 
   case AF_INET6:
@@ -239,17 +242,18 @@ add_source_address(coap_address_t *peer) {
 
     if (peer->addr.sin6.sin6_port != htons(COAP_DEFAULT_PORT)) {
       n +=
-      snprintf(buf + n, BUFSIZE - n, ":%d", peer->addr.sin6.sin6_port);
+      snprintf(buf + n, BUFSIZE - n, ":%d", peer->addr.sin6.sin6_port) +1;
     }
     break;
-    default:
+
+  default:
     ;
   }
 
   if (n < BUFSIZE){
-    buf[n++] = '"';
-    buf[n++] = '\0';
-}
+    buf[n-1] = '"';
+    buf[n] = '\0';
+  }
 
   return buf;
 
