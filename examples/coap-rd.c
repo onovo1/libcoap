@@ -218,9 +218,6 @@ static int add_NAT_rule(coap_resource_t *r, uint32_t lifetime, char *thrd_part, 
 
     err = coap_create_map_rule(pcp_server, 0, ext_addr_NAT, pcp_internal_port, thrd_part);
 
-//  coap_create_map_rule("10.0.0.210:5351", 7200, "10.0.0.210:3000", 5683, "192.168.0.2");
-//  coap_create_map_rule(char *pcp_srv, uint32_t lifetime, char *ext_addr, int int_port, char *thrd_part){
-
   } else {
     // add o refresh a mapping
 
@@ -264,7 +261,9 @@ static int add_NAT_rule(coap_resource_t *r, uint32_t lifetime, char *thrd_part, 
       //First delete the previous mapping before adding the new one
       err = coap_create_map_rule(pcp_server, 0, ext_addr, pcp_internal_port, thrd_part);
 
-      err = coap_create_map_rule(pcp_server, lifetime, ext_addr, pcp_internal_port, thrd_part);
+      if (!err){        
+        err = coap_create_map_rule(pcp_server, lifetime, ext_addr, pcp_internal_port, thrd_part);
+      }
 
       if (r->NAT.s!=NULL)
         coap_free(r->NAT.s);
@@ -411,7 +410,7 @@ get_source_address(coap_address_t *peer) {
 
     inet_ntop(AF_INET, &(peer->addr.sin.sin_addr.s_addr), buf, 16);
 
-    n = strlen(buf) + 1;
+    n = strlen(buf);
     break;
 
   case AF_INET6:
@@ -439,9 +438,8 @@ get_source_address(coap_address_t *peer) {
     default:
     ;
   }
-
   if (n < BUFSIZE)
-    buf[n++] = '\0';
+    buf[n] = '\0';
 
   return buf;
 
@@ -470,10 +468,13 @@ add_source_address(coap_address_t *peer) {
     //buf = 
     inet_ntop(AF_INET, &(peer->addr.sin.sin_addr.s_addr), buf+n, 16);
 
+    n += strlen(buf);
+
     if (peer->addr.sin.sin_port != htons(COAP_DEFAULT_PORT)) {
-        n = strlen(buf) +
-        snprintf(buf + strlen(buf), BUFSIZE - strlen(buf), ":%d", peer->addr.sin.sin_port);
+        n +=
+        snprintf(buf + n -1, BUFSIZE - n -1, ":%d", peer->addr.sin.sin_port);
     }
+
     break;
 
   case AF_INET6:
@@ -502,14 +503,15 @@ add_source_address(coap_address_t *peer) {
       snprintf(buf + n, BUFSIZE - n, ":%d", peer->addr.sin6.sin6_port);
     }
     break;
-    default:
+
+  default:
     ;
   }
 
   if (n < BUFSIZE){
-    buf[n++] = '"';
-    buf[n++] = '\0';
-}
+    buf[n-1] = '"';
+    buf[n] = '\0';
+  }
 
   return buf;
 
@@ -2945,9 +2947,6 @@ hnd_post_rd(coap_context_t  *ctx,
     address_peer = get_source_address(peer);
 
     if (coap_find_same_address(ctx, address_peer, sec, &ext_addr)){
-      //Delete first the previous NATTING rule
-      if (ext_addr!=NULL)
-        add_NAT_rule(NULL, 0, address_peer, ext_addr, 0);
       //Add it again
       add_NAT_rule(r, ltime, address_peer, ext_addr, sec);
     } else {

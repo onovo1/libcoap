@@ -83,8 +83,7 @@ handle_sigint(int signum UNUSED_PARAM) {
 #define INDEX "This is a test server made with libcoap (see https://libcoap.net)\n" \
               "Copyright (C) 2010--2016 Olaf Bergmann <bergmann@tzi.org>\n\n"
 
-#define RESOURCE "C: 17 Cel\n" \
-              "\n"
+#define RESOURCE "C: 17 Cel\n"
 
 static void
 hnd_get_index(coap_context_t *ctx UNUSED_PARAM,
@@ -403,7 +402,11 @@ message_handler(struct coap_context_t *ctx,
     debug("** process incoming %d.%02d response:\n",
           (received->hdr->code >> 5), received->hdr->code & 0x1F);
     coap_show_pdu(received);
+  } else {
+    coap_show_pdu(received);
   }
+#else
+    coap_show_pdu(received);
 #endif
 
   /* check if this is a response to our original request */

@@ -333,7 +333,11 @@ message_handler(struct coap_context_t *ctx,
     debug("** process incoming %d.%02d response:\n",
           (received->hdr->code >> 5), received->hdr->code & 0x1F);
     coap_show_pdu(received);
+  } else {
+    coap_show_pdu(received);
   }
+#else
+    coap_show_pdu(received);
 #endif
 
   /* check if this is a response to our original request */

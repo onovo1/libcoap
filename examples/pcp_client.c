@@ -82,11 +82,11 @@ int coap_create_map_rule(char *pcp_srv, uint32_t lifetime, char *ext_addr, int i
 	peer.map.int_port = int_port;
  
 	/* Maximum retransmission duration*/
-	conf.mrd = 4; 
+	conf.mrd = 2; 
 
-/*re_printf("lifetime = %u sec, pcp_server = %J, protocol = %s, internal_port = %u, external = %J, T = %j\n",
+re_printf("lifetime = %u sec, pcp_server = %J, protocol = %s, internal_port = %u, external = %J, T = %j\n",
 			  lifetime, &pcp_server, pcp_proto_name(peer.map.proto),
-			  peer.map.int_port, &peer.map.ext_addr, &third_party);*/
+			  peer.map.int_port, &peer.map.ext_addr, &third_party);
 
 	if (!nonce_initialize){
 		rand_bytes(peer.map.nonce, sizeof peer.map.nonce);
