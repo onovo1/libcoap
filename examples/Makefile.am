@@ -12,10 +12,16 @@ if BUILD_MODCLIENT
 #AM_CFLAGS = $(RE_CFLAGS) $(REW_CFLAGS) -isystem@top_builddir@/include/coap/ $(WARNING_CFLAGS) -std=c99
 AM_CFLAGS = -isystem@top_builddir@/include/coap/ $(WARNING_CFLAGS) -std=c99
 
-bin_PROGRAMS = coap-client-mod
+bin_PROGRAMS = coap-client-mod coap-client coap-server 
 
 coap_client_mod_SOURCES = coap-client-mod.c coap_list.c
 coap_client_mod_LDADD = @top_builddir@/.libs/libcoap-$(LIBCOAP_API_VERSION).la
+
+coap_client_SOURCES = client.c coap_list.c
+coap_client_LDADD = @top_builddir@/.libs/libcoap-$(LIBCOAP_API_VERSION).la
+
+coap_server_SOURCES = coap-server.c
+coap_server_LDADD = @top_builddir@/.libs/libcoap-$(LIBCOAP_API_VERSION).la
 
 else 
 
