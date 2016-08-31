@@ -2715,7 +2715,7 @@ hnd_post_rd(coap_context_t  *ctx,
       address_peer = get_source_address(peer);
 
       if ((res->A.s !=NULL) && 
-         (strcmp((const char*)address_peer, (const char*)(res->A.s)+1, res->A.length-2)==0)){
+         (strncmp((const char*)address_peer, (const char*)(res->A.s)+1, res->A.length-2)==0)){
         delete = 1;
         debug("hnd_post_rd: the resource already exist, we delete it and create a new one\n");
       } else {
