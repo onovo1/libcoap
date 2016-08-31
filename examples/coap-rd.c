@@ -2369,7 +2369,7 @@ hnd_post_rd(coap_context_t  *ctx,
     resource_key =  coap_build_key_for_resource(ep, loc, LOCSIZE);
 
     /* If the resource already exist, we delete it and create it again*/
-    res = coap_get_resource_from_key(ctx, (unsigned char *)resource_key)
+    res = coap_get_resource_from_key(ctx, (unsigned char *)resource_key);
     if (res !=NULL) {
       address_peer = get_source_address(peer);
 
