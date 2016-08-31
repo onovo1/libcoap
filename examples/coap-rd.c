@@ -2275,7 +2275,7 @@ hnd_post_rd(coap_context_t  *ctx,
             str *token UNUSED_PARAM,
             coap_pdu_t *response) {
 
-  coap_resource_t *r;
+  coap_resource_t *r, *res;
   coap_opt_iterator_t opt_iter;
   coap_opt_t *query, *block_opt = NULL; 
   coap_opt_filter_t filter;
@@ -2369,9 +2369,20 @@ hnd_post_rd(coap_context_t  *ctx,
     resource_key =  coap_build_key_for_resource(ep, loc, LOCSIZE);
 
     /* If the resource already exist, we delete it and create it again*/
-    if (coap_get_resource_from_key(ctx, (unsigned char *)resource_key)!=NULL) {
-      delete = 1;
-      debug("hnd_post_rd: the resource already exist, we delete it and create a new one\n");
+    res = coap_get_resource_from_key(ctx, (unsigned char *)resource_key)
+    if (res !=NULL) {
+      address_peer = get_source_address(peer);
+
+      if ((res->A.s !=NULL) && 
+         (strcmp((const char*)address_peer, (const char*)(res->A.s)+1, res->A.length-2)==0)){
+        delete = 1;
+        debug("hnd_post_rd: the resource already exist, we delete it and create a new one\n");
+      } else {
+        /*Another node try to register an endpoint with the same name*/
+        response->hdr->code = COAP_RESPONSE_CODE(400);
+        coap_free(resource_key);
+        return;    
+      }
     }
 
   } else {   /* create response error */
