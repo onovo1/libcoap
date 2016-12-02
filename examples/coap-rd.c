@@ -33,9 +33,6 @@
 #include "utlist.h"
 #include "lifetime.h"
 
-//TODO file included only for testing proposed
-#include "rd_list_elements.h"
-
 #include "mjson.h"
 #include <errno.h>
 
@@ -2371,18 +2368,13 @@ hnd_post_rd(coap_context_t  *ctx,
     /* If the resource already exist, we delete it and create it again*/
     res = coap_get_resource_from_key(ctx, (unsigned char *)resource_key);
     if (res !=NULL) {
-      address_peer = get_source_address(peer);
-
-      if ((res->A.s !=NULL) && 
-         (strncmp((const char*)address_peer, (const char*)(res->A.s)+1, res->A.length-2)==0)){
         delete = 1;
         debug("hnd_post_rd: the resource already exist, we delete it and create a new one\n");
       } else {
         /*Another node try to register an endpoint with the same name*/
         response->hdr->code = COAP_RESPONSE_CODE(400);
         coap_free(resource_key);
-        return;    
-      }
+        return;
     }
 
   } else {   /* create response error */

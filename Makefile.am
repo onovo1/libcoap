@@ -20,8 +20,6 @@ EXTRA_DIST = \
   libcoap-$(LIBCOAP_API_VERSION).map \
   libcoap-$(LIBCOAP_API_VERSION).sym \
   examples/coap_list.h \
-  ## TODO: remove rd_list_elements.c later, debugging purpose only
-  examples/rd_list_elements.c \
   tests/test_options.h \
   tests/test_pdu.h \
   tests/test_error_response.h \
