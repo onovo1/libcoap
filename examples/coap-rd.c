@@ -2277,6 +2277,7 @@ hnd_post_rd(coap_context_t  *ctx,
   coap_opt_t *query, *block_opt = NULL; 
   coap_opt_filter_t filter;
 
+
   unsigned char loc[LOCSIZE], *uri, *buf, *payload=NULL, block_buf[4];
   size_t loc_size, uri_size, key_size, payload_length;
   str rt = {0, NULL}, lt = {0, NULL}, ep = {0, NULL}, d = {0, NULL}, et = {0, NULL}, con = {0, NULL}; /* store query parameters */
@@ -2351,7 +2352,6 @@ hnd_post_rd(coap_context_t  *ctx,
           rt.s= (unsigned char *) coap_opt_value(query) + val_offset;
           rt.length= strlen(buf_op);        
       } else {
-          debug("hnd_post_rd: cannot find option\n");
           response->hdr->code = COAP_RESPONSE_CODE(400);
           coap_free(cp);
           return;
@@ -2370,19 +2370,12 @@ hnd_post_rd(coap_context_t  *ctx,
     if (res !=NULL) {
         delete = 1;
         debug("hnd_post_rd: the resource already exist, we delete it and create a new one\n");
-      } else {
-        /*Another node try to register an endpoint with the same name*/
-        response->hdr->code = COAP_RESPONSE_CODE(400);
-        coap_free(resource_key);
-        return;
     }
-
   } else {   /* create response error */
     response->hdr->code = COAP_RESPONSE_CODE(400);
     coap_free(resource_key);
     return;
   }
-
   /* Create a new uri rd/ep-name */
   uri = (unsigned char *)coap_malloc(LOCSIZE);
   if (!uri) {
