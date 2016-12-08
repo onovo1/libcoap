@@ -558,6 +558,8 @@ coap_print_status_t coap_print_wellknown(coap_context_t *,
                                          size_t *, size_t,
                                          coap_opt_t *);
 
+coap_print_status_t coap_print_link(const coap_resource_t *, unsigned char *, size_t *, size_t *);
+
 void coap_handle_failed_notify(coap_context_t *,
                                const coap_address_t *,
                                const str *);
