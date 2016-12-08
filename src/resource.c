@@ -96,7 +96,7 @@ coap_match(const str *text, const str *pattern, int match_prefix, int match_subs
     memcmp(text->s, pattern->s, pattern->length) == 0;
 }
 
-static coap_print_status_t
+coap_print_status_t
 coap_print_link(const coap_resource_t *resource, 
 		unsigned char *buf, size_t *len, size_t *offset) {
   unsigned char *p = buf;
