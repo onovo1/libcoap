@@ -6,6 +6,7 @@
  * README for terms of use. 
  */
 
+#include <stdio.h>
 #include "coap_config.h"
 #include "coap.h"
 #include "debug.h"
@@ -14,6 +15,7 @@
 #include "resource.h"
 #include "subscribe.h"
 #include "utlist.h"
+#include "lifetime.h"
 
 #ifdef WITH_LWIP
 /* mem.h is only needed for the string free calls for
