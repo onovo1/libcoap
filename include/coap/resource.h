@@ -81,8 +81,19 @@ typedef struct coap_link_t {
   int exp; 	/*Export attribute*/
 } coap_link_t;
 
+/** The URI passed to coap_resource_init() is free'd by coap_delete_resource(). */
 #define COAP_RESOURCE_FLAGS_RELEASE_URI 0x1
+
+/**
+ * Notifications will be sent non-confirmable by default. RFC 7641 Section 4.5
+ * https://tools.ietf.org/html/rfc7641#section-4.5
+ */
 #define COAP_RESOURCE_FLAGS_NOTIFY_NON  0x0
+
+/**
+ * Notifications will be sent confirmable by default. RFC 7641 Section 4.5
+ * https://tools.ietf.org/html/rfc7641#section-4.5
+ */
 #define COAP_RESOURCE_FLAGS_NOTIFY_CON  0x2
 
 #define COAP_RESOURCE_FLAGS_EXPORT	0x1
@@ -323,6 +334,32 @@ typedef unsigned int coap_print_status_t;
 #define COAP_PRINT_OUTPUT_LENGTH(v) ((v) & ~COAP_PRINT_STATUS_MASK)
 #define COAP_PRINT_STATUS_ERROR 0x80000000u
 #define COAP_PRINT_STATUS_TRUNC 0x40000000u
+
+/**
+ * Writes a description of this resource in link-format to given text buffer. @p
+ * len must be initialized to the maximum length of @p buf and will be set to
+ * the number of characters actually written if successful. This function
+ * returns @c 1 on success or @c 0 on error.
+ *
+ * @param resource The resource to describe.
+ * @param buf      The output buffer to write the description to.
+ * @param len      Must be initialized to the length of @p buf and
+ *                 will be set to the length of the printed link description.
+ * @param offset   The offset within the resource description where to
+ *                 start writing into @p buf. This is useful for dealing
+ *                 with the Block2 option. @p offset is updated during
+ *                 output as it is consumed.
+ *
+ * @return If COAP_PRINT_STATUS_ERROR is set, an error occured. Otherwise,
+ *         the lower 28 bits will indicate the number of characters that
+ *         have actually been output into @p buffer. The flag
+ *         COAP_PRINT_STATUS_TRUNC indicates that the output has been
+ *         truncated.
+ */
+coap_print_status_t coap_print_link(const coap_resource_t *resource,
+                                    unsigned char *buf,
+                                    size_t *len,
+size_t *offset);
 
 /**
  * Writes a description of this resource in link-format to given text buffer. @p

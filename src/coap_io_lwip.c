@@ -10,6 +10,7 @@
 #include "coap_config.h"
 #include "mem.h"
 #include "coap_io.h"
+#include <lwip/udp.h>
 
 void coap_packet_populate_endpoint(coap_packet_t *packet, coap_endpoint_t *target)
 {
@@ -49,7 +50,7 @@ struct pbuf *coap_packet_extract_pbuf(coap_packet_t *packet)
  *
  * It handles everything coap_read does on other implementations.
  */
-static void coap_recv(void *arg, struct udp_pcb *upcb, struct pbuf *p, ip_addr_t *addr, u16_t port)
+static void coap_recv(void *arg, struct udp_pcb *upcb, struct pbuf *p, const ip_addr_t *addr, u16_t port)
 {
 	coap_endpoint_t *ep = (coap_endpoint_t*)arg;
 	coap_packet_t *packet = coap_malloc_type(COAP_PACKET, sizeof(coap_packet_t));
@@ -73,7 +74,7 @@ coap_endpoint_t *coap_new_endpoint(const coap_address_t *addr, int flags) {
 	result = coap_malloc_type(COAP_ENDPOINT, sizeof(coap_endpoint_t));
 	if (!result) return NULL;
 
-	result->pcb = udp_new();
+	result->pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
 	if (result->pcb == NULL) goto error;
 
 	udp_recv(result->pcb, coap_recv, (void*)result);

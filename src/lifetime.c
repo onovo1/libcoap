@@ -20,7 +20,7 @@ coap_print_status_t coap_display_lifetime(coap_context_t *context, unsigned char
   const unsigned char *bufend = buf + *buflen;
   size_t left, written = 0;
   int subsequent_resource = 0;
-  coap_print_status_t result = NULL;
+  coap_print_status_t result = '\0';
   const size_t old_offset = offset;
   coap_lifetime_t *r;
 

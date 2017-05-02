@@ -34,26 +34,27 @@
  * lwip adaptions: chrysn <chrysn@fsfe.org>
  * also, https://savannah.nongnu.org/bugs/?40245 was applied */
 
+#include "server-coap.h"
+
 #include <lwip/init.h>
 #include <lwip/timers.h>
 
-#include <mintapif.h>
 #include <netif/etharp.h>
+#include <netif/tapif.h>
 
-#include "timer.h"
 #include <signal.h>
 
-#include "server-coap.h"
-
-static ip_addr_t ipaddr, netmask, gw;
+static ip4_addr_t ipaddr, netmask, gw;
 
 int
 main(int argc, char **argv)
 {
 	struct netif netif;
-	sigset_t mask, oldmask, empty;
 
-	/* startup defaults (may be overridden by one or more opts) */
+	/* startup defaults (may be overridden by one or more opts). this is
+	 * hard-coded v4 even in presence of v6, which does auto-discovery and
+	 * should thus wind up with an address of fe80::12:34ff:fe56:78ab%tap0
+	 * */
 	IP4_ADDR(&gw, 192,168,0,1);
 	IP4_ADDR(&ipaddr, 192,168,0,2);
 	IP4_ADDR(&netmask, 255,255,255,0);
@@ -62,17 +63,13 @@ main(int argc, char **argv)
 
 	printf("TCP/IP initialized.\n");
 
-	netif_add(&netif, &ipaddr, &netmask, &gw, NULL, mintapif_init, ethernet_input);
+	netif_add(&netif, &ipaddr, &netmask, &gw, NULL, tapif_init, ethernet_input);
 	netif.flags |= NETIF_FLAG_ETHARP;
 	netif_set_default(&netif);
 	netif_set_up(&netif);
 #if LWIP_IPV6
 	netif_create_ip6_linklocal_address(&netif, 1);
 #endif 
-
-	timer_init();
-
-	sys_timeouts_init();
 
 	/* start applications here */
 
@@ -82,29 +79,8 @@ main(int argc, char **argv)
 
 
 	while (1) {
-
-		/* poll for input packet and ensure
-		 select() or read() arn't interrupted */
-		sigemptyset(&mask);
-		sigaddset(&mask, SIGALRM);
-		sigprocmask(SIG_BLOCK, &mask, &oldmask);
-
-		/* start of critical section,
-		 poll netif, pass packet to lwIP */
-		if (mintapif_select(&netif) > 0)
-		{
-			/* work, immediatly end critical section 
-			   hoping lwIP ended quickly ... */
-			sigprocmask(SIG_SETMASK, &oldmask, NULL);
-		}
-		else
-		{
-			/* no work, wait a little (10 msec) for SIGALRM */
-			  sigemptyset(&empty);
-			  sigsuspend(&empty);
-			/* ... end critical section */
-			  sigprocmask(SIG_SETMASK, &oldmask, NULL);
-		}
+		/* poll netif, pass packet to lwIP */
+		tapif_select(&netif);
 
 		sys_check_timeouts();
 
