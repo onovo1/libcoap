@@ -38,6 +38,24 @@
 #include "coap_io.h"
 
 #ifdef WITH_POSIX
+/* define generic PKTINFO for IPv4 */
+#if defined(IP_PKTINFO)
+#  define GEN_IP_PKTINFO IP_PKTINFO
+#elif defined(IP_RECVDSTADDR)
+#  define GEN_IP_PKTINFO IP_RECVDSTADDR
+#else
+#  error "Need IP_PKTINFO or IP_RECVDSTADDR to request ancillary data from OS."
+#endif /* IP_PKTINFO */
+
+/* define generic KTINFO for IPv6 */
+#ifdef IPV6_RECVPKTINFO
+#  define GEN_IPV6_PKTINFO IPV6_RECVPKTINFO
+#elif defined(IPV6_PKTINFO)
+#  define GEN_IPV6_PKTINFO IPV6_PKTINFO
+#else
+#  error "Need IPV6_PKTINFO or IPV6_RECVPKTINFO to request ancillary data from OS."
+#endif /* IPV6_RECVPKTINFO */
+
 struct coap_packet_t {
   coap_if_handle_t hnd;	      /**< the interface handle */
   coap_address_t src;	      /**< the packet's source address */
@@ -133,17 +151,12 @@ coap_new_endpoint(const coap_address_t *addr, int flags) {
   on = 1;
   switch(addr->addr.sa.sa_family) {
   case AF_INET:
-    if (setsockopt(sockfd, IPPROTO_IP, IP_PKTINFO, &on, sizeof(on)) < 0)
+    if (setsockopt(sockfd, IPPROTO_IP, GEN_IP_PKTINFO, &on, sizeof(on)) < 0)
       coap_log(LOG_ALERT, "coap_new_endpoint: setsockopt IP_PKTINFO\n");
     break;
   case AF_INET6:
-#ifdef IPV6_RECVPKTINFO
-  if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_RECVPKTINFO, &on, sizeof(on)) < 0)
-    coap_log(LOG_ALERT, "coap_new_endpoint: setsockopt IPV6_RECVPKTINFO\n");
-#else /* IPV6_RECVPKTINFO */
-  if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_PKTINFO, &on, sizeof(on)) < 0)
+  if (setsockopt(sockfd, IPPROTO_IPV6, GEN_IPV6_PKTINFO, &on, sizeof(on)) < 0)
     coap_log(LOG_ALERT, "coap_new_endpoint: setsockopt IPV6_PKTINFO\n");
-#endif /* IPV6_RECVPKTINFO */      
   break;
   default:
     coap_log(LOG_ALERT, "coap_new_endpoint: unsupported sa_family\n");
@@ -245,6 +258,8 @@ coap_network_send(struct coap_context_t *context UNUSED_PARAM,
 #ifndef WITH_CONTIKI
   /* a buffer large enough to hold all protocol address types */
   char buf[CMSG_LEN(sizeof(struct sockaddr_storage))];
+  (void)context;
+
   struct msghdr mhdr;
   struct iovec iov[1];
 
@@ -291,6 +306,7 @@ coap_network_send(struct coap_context_t *context UNUSED_PARAM,
     break;
   }
   case AF_INET: {
+#if defined(IP_PKTINFO)
     struct cmsghdr *cmsg;
     struct in_pktinfo *pktinfo;
 
@@ -316,6 +332,7 @@ coap_network_send(struct coap_context_t *context UNUSED_PARAM,
 	     &local_interface->addr.addr.sin.sin_addr,
 	     local_interface->addr.size);
     }
+#endif /* IP_PKTINFO */
     break;
   }
   default:
@@ -328,6 +345,8 @@ coap_network_send(struct coap_context_t *context UNUSED_PARAM,
 #else /* WITH_CONTIKI */
   /* FIXME: untested */
   /* FIXME: is there a way to check if send was successful? */
+  (void)datalen;
+  (void)data;
   uip_udp_packet_sendto((struct uip_udp_conn *)ep->handle.conn, data, datalen, 
 			&dst->addr, dst->port);
   return datalen;
@@ -371,7 +390,8 @@ coap_free_packet(coap_packet_t *packet) {
 #endif /* WITH_CONTIKI */
 
 static inline size_t
-coap_get_max_packetlength(const coap_packet_t *packet UNUSED_PARAM) {
+coap_get_max_packetlength(const coap_packet_t *packet) {
+  (void)packet;
   return COAP_MAX_PDU_SIZE;
 }
 
@@ -480,8 +500,11 @@ coap_network_read(coap_endpoint_t *ep, coap_packet_t **packet) {
 	memcpy(&(*packet)->dst.addr.sin6.sin6_addr, 
 	       &u.p->ipi6_addr, sizeof(struct in6_addr));
 
-	(*packet)->src.size = mhdr.msg_namelen;
-	assert((*packet)->src.size == sizeof(struct sockaddr_in6));
+	(*packet)->src.size = sizeof(struct sockaddr_in6);
+        if ((*packet)->src.size != mhdr.msg_namelen) {
+          coap_log(LOG_DEBUG, "wrong IPv6 address length detected, dropped packet\n");
+          goto error;
+        }
 
 	(*packet)->src.addr.sin6.sin6_family = SIN6(mhdr.msg_name)->sin6_family;
 	(*packet)->src.addr.sin6.sin6_addr = SIN6(mhdr.msg_name)->sin6_addr;
@@ -491,6 +514,7 @@ coap_network_read(coap_endpoint_t *ep, coap_packet_t **packet) {
       }
 
       /* local interface for IPv4 */
+#if defined(IP_PKTINFO)
       if (cmsg->cmsg_level == SOL_IP && cmsg->cmsg_type == IP_PKTINFO) {
 	union {
 	  unsigned char *c;
@@ -503,12 +527,34 @@ coap_network_read(coap_endpoint_t *ep, coap_packet_t **packet) {
 	memcpy(&(*packet)->dst.addr.sin.sin_addr, 
 	       &u.p->ipi_addr, sizeof(struct in_addr));
 
-	(*packet)->src.size = mhdr.msg_namelen;
+	(*packet)->src.size = sizeof(struct sockaddr_in);
+        if ((*packet)->src.size != mhdr.msg_namelen) {
+          coap_log(LOG_DEBUG, "wrong IPv4 address length detected, dropped packet\n");
+          goto error;
+        }
 
-	memcpy(&(*packet)->src.addr.st, mhdr.msg_name, (*packet)->src.size);
+	assert(memcmp(&(*packet)->src.addr.st, mhdr.msg_name, (*packet)->src.size) == 0);
 
 	break;
       }
+#elif defined(IP_RECVDSTADDR)
+      if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_RECVDSTADDR) {
+	(*packet)->ifindex = 0;
+
+	memcpy(&(*packet)->dst.addr.sin.sin_addr,
+	       CMSG_DATA(cmsg), sizeof(struct in_addr));
+
+	(*packet)->src.size = sizeof(struct sockaddr_in);
+        if ((*packet)->src.size != mhdr.msg_namelen) {
+          coap_log(LOG_DEBUG, "wrong IPv4 address length detected, dropped packet\n");
+          goto error;
+        }
+
+	assert(memcmp(&(*packet)->src.addr.st, mhdr.msg_name, (*packet)->src.size) == 0);
+
+	break;
+      }
+#endif /* IP_PKTINFO */
     }
 
     if (!is_local_if(&ep->addr, &(*packet)->dst)) {
@@ -569,10 +615,12 @@ coap_network_read(coap_endpoint_t *ep, coap_packet_t **packet) {
   (*packet)->interface = ep;
 
   return len;
+#if defined(WITH_POSIX) || defined(WITH_CONTIKI)
  error:
   coap_free_packet(*packet);
   *packet = NULL;
   return -1;
+#endif
 }
 
 #undef SIN6

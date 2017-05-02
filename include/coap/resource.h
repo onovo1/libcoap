@@ -82,8 +82,19 @@ typedef struct coap_link_t {
   int exp; 	/*Export attribute*/
 } coap_link_t;
 
+/** The URI passed to coap_resource_init() is free'd by coap_delete_resource(). */
 #define COAP_RESOURCE_FLAGS_RELEASE_URI 0x1
+
+/**
+ * Notifications will be sent non-confirmable by default. RFC 7641 Section 4.5
+ * https://tools.ietf.org/html/rfc7641#section-4.5
+ */
 #define COAP_RESOURCE_FLAGS_NOTIFY_NON  0x0
+
+/**
+ * Notifications will be sent confirmable by default. RFC 7641 Section 4.5
+ * https://tools.ietf.org/html/rfc7641#section-4.5
+ */
 #define COAP_RESOURCE_FLAGS_NOTIFY_CON  0x2
 
 #define COAP_RESOURCE_FLAGS_EXPORT	0x1

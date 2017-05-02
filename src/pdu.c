@@ -1,6 +1,6 @@
 /* pdu.c -- CoAP message structure
  *
- * Copyright (C) 2010--2014 Olaf Bergmann <bergmann@tzi.org>
+ * Copyright (C) 2010--2016 Olaf Bergmann <bergmann@tzi.org>
  *
  * This file is part of the CoAP library libcoap. Please see
  * README for terms of use. 
@@ -10,6 +10,10 @@
 
 #if defined(HAVE_ASSERT_H) && !defined(assert)
 # include <assert.h>
+#endif
+
+#if defined(HAVE_LIMITS_H)
+#include <limits.h>
 #endif
 
 #include <stdlib.h>
@@ -120,7 +124,7 @@ coap_new_pdu(void) {
   coap_pdu_t *pdu;
   
 #ifndef WITH_CONTIKI
-  pdu = coap_pdu_init(0, 0, ntohs(COAP_INVALID_TID), COAP_MAX_PDU_SIZE);
+  pdu = coap_pdu_init(0, 0, ntohs((uint16_t)COAP_INVALID_TID), COAP_MAX_PDU_SIZE);
 #else /* WITH_CONTIKI */
   pdu = coap_pdu_init(0, 0, uip_ntohs(COAP_INVALID_TID), COAP_MAX_PDU_SIZE);
 #endif /* WITH_CONTIKI */
@@ -156,7 +160,7 @@ coap_add_token(coap_pdu_t *pdu, size_t len, const unsigned char *data) {
   if (!pdu || len > 8 || pdu->max_size < HEADERLENGTH)
     return 0;
 
-  pdu->hdr->token_length = len;
+  pdu->hdr->token_length = (unsigned char)len;
   if (len)
     memcpy(pdu->hdr->token, data, len);
   pdu->max_delta = 0;
@@ -186,13 +190,14 @@ coap_add_option(coap_pdu_t *pdu, unsigned short type, unsigned int len, const un
   optsize = coap_opt_encode(opt, pdu->max_size - pdu->length, 
 			    type - pdu->max_delta, data, len);
 
-  if (!optsize) {
+  size_t new_pdu_length = pdu->length + optsize;
+  if (!optsize || new_pdu_length > USHRT_MAX) {
     warn("coap_add_option: cannot add option\n");
     /* error */
     return 0;
   } else {
     pdu->max_delta = type;
-    pdu->length += optsize;
+    pdu->length = (unsigned short)new_pdu_length;
   }
 
   return optsize;
@@ -218,13 +223,14 @@ coap_add_option_later(coap_pdu_t *pdu, unsigned short type, unsigned int len) {
   optsize = coap_opt_encode(opt, pdu->max_size - pdu->length,
 			    type - pdu->max_delta, NULL, len);
 
-  if (!optsize) {
+  size_t new_pdu_length = pdu->length + optsize;
+  if (!optsize || new_pdu_length > USHRT_MAX) {
     warn("coap_add_option: cannot add option\n");
     /* error */
     return NULL;
   } else {
     pdu->max_delta = type;
-    pdu->length += optsize;
+    pdu->length = (unsigned short)new_pdu_length;
   }
 
   return ((unsigned char*)opt) + optsize - len;
@@ -238,7 +244,8 @@ coap_add_data(coap_pdu_t *pdu, unsigned int len, const unsigned char *data) {
   if (len == 0)
     return 1;
 
-  if (pdu->length + len + 1 > pdu->max_size) {
+  size_t new_length = pdu->length + len + 1;
+  if (new_length > pdu->max_size || new_length > USHRT_MAX) {
     warn("coap_add_data: cannot add: data too large for PDU\n");
     assert(pdu->data == NULL);
     return 0;
@@ -249,7 +256,7 @@ coap_add_data(coap_pdu_t *pdu, unsigned int len, const unsigned char *data) {
   pdu->data++;
 
   memcpy(pdu->data, data, len);
-  pdu->length += len + 1;
+  pdu->length = (unsigned short)new_length;
   return 1;
 }
 
@@ -279,20 +286,23 @@ typedef struct {
 /* if you change anything here, make sure, that the longest string does not 
  * exceed COAP_ERROR_PHRASE_LENGTH. */
 error_desc_t coap_error[] = {
-  { COAP_RESPONSE_CODE(65),  "2.01 Created" },
-  { COAP_RESPONSE_CODE(66),  "2.02 Deleted" },
-  { COAP_RESPONSE_CODE(67),  "2.03 Valid" },
-  { COAP_RESPONSE_CODE(68),  "2.04 Changed" },
-  { COAP_RESPONSE_CODE(69),  "2.05 Content" },
+  { COAP_RESPONSE_CODE(201), "Created" },
+  { COAP_RESPONSE_CODE(202), "Deleted" },
+  { COAP_RESPONSE_CODE(203), "Valid" },
+  { COAP_RESPONSE_CODE(204), "Changed" },
+  { COAP_RESPONSE_CODE(205), "Content" },
+  { COAP_RESPONSE_CODE(231), "Continue" },
   { COAP_RESPONSE_CODE(400), "Bad Request" },
   { COAP_RESPONSE_CODE(401), "Unauthorized" },
   { COAP_RESPONSE_CODE(402), "Bad Option" },
   { COAP_RESPONSE_CODE(403), "Forbidden" },
   { COAP_RESPONSE_CODE(404), "Not Found" },
   { COAP_RESPONSE_CODE(405), "Method Not Allowed" },
+  { COAP_RESPONSE_CODE(406), "Not Acceptable" },
   { COAP_RESPONSE_CODE(408), "Request Entity Incomplete" },
+  { COAP_RESPONSE_CODE(412), "Precondition Failed" },
   { COAP_RESPONSE_CODE(413), "Request Entity Too Large" },
-  { COAP_RESPONSE_CODE(415), "Unsupported Media Type" },
+  { COAP_RESPONSE_CODE(415), "Unsupported Content-Format" },
   { COAP_RESPONSE_CODE(500), "Internal Server Error" },
   { COAP_RESPONSE_CODE(501), "Not Implemented" },
   { COAP_RESPONSE_CODE(502), "Bad Gateway" },
@@ -344,7 +354,7 @@ coap_pdu_parse(unsigned char *data, size_t length, coap_pdu_t *pdu) {
   assert(data);
   assert(pdu);
 
-  if (pdu->max_size < length) {
+  if (pdu->max_size < length || length > USHRT_MAX) {
     debug("insufficient space to store parsed PDU\n");
     return 0;
   }
@@ -354,7 +364,10 @@ coap_pdu_parse(unsigned char *data, size_t length, coap_pdu_t *pdu) {
   }
 
 #ifdef WITH_LWIP
-  LWIP_ASSERT("coap_pdu_parse with unexpected addresses", data == pdu->hdr);
+  /* this verifies that with the classical copy-at-parse-time and lwip's
+   * zerocopy-into-place approaches, both share the same idea of destination
+   * addresses */
+  LWIP_ASSERT("coap_pdu_parse with unexpected addresses", data == (void*)pdu->hdr);
   LWIP_ASSERT("coap_pdu_parse with unexpected length", length == pdu->length);
 #else
 
@@ -384,8 +397,10 @@ coap_pdu_parse(unsigned char *data, size_t length, coap_pdu_t *pdu) {
    * response back to the network. */
   memcpy(&pdu->hdr->id, data + 2, 2);
 
-  /* append data (including the Token) to pdu structure */
-  memcpy(pdu->hdr + 1, data + sizeof(coap_hdr_t), length - sizeof(coap_hdr_t));
+  /* Append data (including the Token) to pdu structure, if any. */
+  if (length > sizeof(coap_hdr_t)) {
+    memcpy(pdu->hdr + 1, data + sizeof(coap_hdr_t), length - sizeof(coap_hdr_t));
+  }
   pdu->length = length;
  
   /* Finally calculate beginning of data block and thereby check integrity
