@@ -173,8 +173,7 @@ static int match_options(str pattern, str option) {
   return 0;
 }
 
-static unsigned char* concat(unsigned char *s1, unsigned char *s2)
-{
+static unsigned char* concat(unsigned char *s1, unsigned char *s2) {
     size_t len1 = strlen((char *)s1), len2 = strlen((char *)s2);
 
     unsigned char *result = coap_malloc(len1+len2+1);//+1 for the zero-terminator
@@ -217,7 +216,7 @@ add_source_address(coap_address_t *peer) {
     break;
 
   case AF_INET6:
-    n += snprintf(buf + n, BUFSIZE - n,
+    snprintf(buf + n, BUFSIZE - n,
       "[%02x%02x:%02x%02x:%02x%02x:%02x%02x" \
       ":%02x%02x:%02x%02x:%02x%02x:%02x%02x]",
       peer->addr.sin6.sin6_addr.s6_addr[0],
@@ -237,9 +236,11 @@ add_source_address(coap_address_t *peer) {
       peer->addr.sin6.sin6_addr.s6_addr[14],
       peer->addr.sin6.sin6_addr.s6_addr[15]);
 
+    n += strlen(buf);
+
     if (peer->addr.sin6.sin6_port != htons(COAP_DEFAULT_PORT)) {
       n +=
-      snprintf(buf + n, BUFSIZE - n, ":%d", peer->addr.sin6.sin6_port) +1;
+      snprintf(buf + n -1, BUFSIZE - n+1, ":%d", peer->addr.sin6.sin6_port);
     }
     break;
 
@@ -954,7 +955,7 @@ static int parse_link_format(char *s, coap_resource_t *r, int update){
 
   char *cp, *sc, *link;
   char seps[] = ",", sep_c[] = ";", sep_eq[] = "=";
-  char *href = NULL, *rel = NULL, *rt = NULL, *ifd = NULL, *ct = NULL, *ins = NULL, *buf = NULL;
+  char *href = NULL, *rel = NULL, *rt = NULL, *ifd = NULL, *ct = NULL, *ins = NULL, *sem = NULL, *buf = NULL;
   int exp = 0; 
   coap_link_t *link_update;     
  
@@ -998,6 +999,8 @@ static int parse_link_format(char *s, coap_resource_t *r, int update){
                     ct = trimwhitespace(sc);
                   } else if (strcmp(buf, "ins") == 0) { 
                     ins = trimwhitespace(sc);
+                  } else if (strcmp(buf, "sem") == 0) { 
+                    sem = trimwhitespace(sc);
                   } else {
                     debug("parse_link_format: unknown content-format '%s'\n",buf);
                     coap_free(buf);
@@ -1009,10 +1012,10 @@ static int parse_link_format(char *s, coap_resource_t *r, int update){
             }  
      
             /* Create new link struct */
-            coap_add_link(r, href, ct, rt, ifd, rel, ins, exp);
+            coap_add_link(r, href, ct, rt, ifd, rel, ins, sem, exp);
 
             /* clean-up the variables */
-            href = NULL; ct = NULL; rt = NULL; ifd = NULL; rel=NULL; ins=NULL; exp=0;
+            href = NULL; ct = NULL; rt = NULL; ifd = NULL; rel=NULL; ins=NULL; sem=NULL; exp=0;
 
           } else {
             debug("parse_link_format: 'href' does not exist\n");
@@ -1029,7 +1032,7 @@ static int parse_json_format(char *s, coap_resource_t *r, int update){
 
   int i, status = 0;
   static int visible;
-  char *ct = NULL, *href = NULL, *rel = NULL, *rt = NULL, *ifd = NULL, *ins = NULL;
+  char *ct = NULL, *href = NULL, *rel = NULL, *rt = NULL, *ifd = NULL, *ins = NULL, *sem = NULL;
   coap_link_t *link_update;  
 
   static struct linkstruct_t {
@@ -1038,6 +1041,7 @@ static int parse_json_format(char *s, coap_resource_t *r, int update){
     char rt[MAX_LENGTH_LINK_CHAR];
     char ifd[MAX_LENGTH_LINK_CHAR];
     char ins[MAX_LENGTH_LINK_CHAR];
+    char sem[MAX_LENGTH_LINK_CHAR];
     int ct;
     int exp;
   } linkstruck[MAX_JSON_LINKS];
@@ -1053,6 +1057,8 @@ static int parse_json_format(char *s, coap_resource_t *r, int update){
                          .len = MAX_LENGTH_LINK_CHAR},
     {"ct",  t_integer,  .addr.offset = offsetof(struct linkstruct_t, ct)},
     {"ins",  t_string,  .addr.offset = offsetof(struct linkstruct_t, ins),
+                         .len = MAX_LENGTH_LINK_CHAR},
+    {"sem",  t_string,  .addr.offset = offsetof(struct linkstruct_t, sem),
                          .len = MAX_LENGTH_LINK_CHAR},
     {"exp",  t_integer,  .addr.offset = offsetof(struct linkstruct_t, exp)},
     {NULL},
@@ -1163,6 +1169,21 @@ static int parse_json_format(char *s, coap_resource_t *r, int update){
       ins = NULL;
     }
 
+    if (strlen(linkstruck[i].sem) > 0){
+      sem = (char *)coap_malloc(strlen(linkstruck[i].sem)+3);
+      if (!sem)
+        return 0;
+
+      /* add missing quotes */
+      sem[0] = '"';
+      memcpy(sem+1, linkstruck[i].sem, strlen(linkstruck[i].sem));
+      sem[strlen(linkstruck[i].sem)+1] = '"';
+      sem[strlen(linkstruck[i].sem)+2] = '\0';
+
+    } else {
+      sem = NULL;
+    }
+
     if (strlen(linkstruck[i].rel) > 0){
       rel = (char *)coap_malloc(strlen(linkstruck[i].rel)+3);
       if (!rel)
@@ -1180,10 +1201,10 @@ static int parse_json_format(char *s, coap_resource_t *r, int update){
 
     if (linkstruck[i].exp>0){
       /* Create new link struct */
-      coap_add_link(r, href, ct, rt, ifd, rel, ins, COAP_RESOURCE_FLAGS_EXPORT);
+      coap_add_link(r, href, ct, rt, ifd, rel, ins, sem, COAP_RESOURCE_FLAGS_EXPORT);
     } else {
       /* Create new link struct */
-      coap_add_link(r, href, ct, rt, ifd, rel, ins, 0);
+      coap_add_link(r, href, ct, rt, ifd, rel, ins, sem, 0);
     }
 
   }
@@ -1248,7 +1269,7 @@ hnd_get_resource(coap_context_t  *ctx UNUSED_PARAM,
   char *cp, *buf_op;
   size_t len = 0, offset = 0;
   coap_print_status_t result;
-  str unquoted_link = {0, NULL}, href = {0, NULL}, rel = {0, NULL}, rt = {0, NULL}, ifd = {0, NULL}, ct = {0, NULL}, ins = {0, NULL}; /* store query parameters */
+  str unquoted_link = {0, NULL}, href = {0, NULL}, rel = {0, NULL}, rt = {0, NULL}, ifd = {0, NULL}, ct = {0, NULL}, ins = {0, NULL}, sem = {0, NULL}; /* store query parameters */
   int first_link = 0, val_offset = 0, exp = 0;
   unsigned char *p, buf[3];
   const unsigned char *bufend;
@@ -1317,6 +1338,9 @@ hnd_get_resource(coap_context_t  *ctx UNUSED_PARAM,
         } else if (strcmp(cp, "ins") == 0) {
             ins.s= (unsigned char *) coap_opt_value(query) + val_offset;
             ins.length= strlen(buf_op);        
+        } else if (strcmp(cp, "sem") == 0) {
+            sem.s= (unsigned char *) coap_opt_value(query) + val_offset;
+            sem.length= strlen(buf_op);        
         } else {
             debug("hnd_get_resource: cannot find option\n");
             response->hdr->code = COAP_RESPONSE_CODE(400);
@@ -1391,6 +1415,12 @@ hnd_get_resource(coap_context_t  *ctx UNUSED_PARAM,
         continue;
     }
    
+    if (sem.s) {
+      if (!link->sem.s) continue;
+      if (!match_options(sem, link->sem))
+        continue;
+    }
+
     if (exp) {
       if (!link->exp) continue;
     }
@@ -1649,6 +1679,12 @@ lookup_print_resource(coap_link_t *link, unsigned char *buf, const unsigned char
 			  link->ins.s, link->ins.length, *len);
     }
 
+    if (link->sem.s) {
+        COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";sem=", 5, *len);
+    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+			  link->sem.s, link->sem.length, *len);
+    }
+
     if (link->exp) {
         COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";exp", 4, *len);
     }
@@ -1790,6 +1826,10 @@ coap_delete_variable(coap_variables_t *variable){
       coap_free(variable->ins.s);
     }
 
+    if (variable->sem.s){
+      coap_free(variable->sem.s);
+    }
+
   #ifdef WITH_LWIP
     memp_free(MEMP_COAP_VARIABLES, variable);
   #endif
@@ -1880,6 +1920,12 @@ lookup_resource(coap_variables_t *variables_buf, coap_resource_t *r, coap_group_
     if (variables_buf->ins.s) {
       if (!link->ins.s) continue;
       if (!match_options(variables_buf->ins, link->ins))
+        continue;
+    }
+
+    if (variables_buf->sem.s) {
+      if (!link->sem.s) continue;
+      if (!match_options(variables_buf->sem, link->sem))
         continue;
     }
 
@@ -2038,6 +2084,9 @@ lookup_function(coap_context_t  *ctx, coap_pdu_t *request, unsigned char *buf, s
         } else if (strcmp(cp, "ins") == 0) {
             variables_buf->ins.s= buf_val;
             variables_buf->ins.length= unquoted_val.length; 
+        } else if (strcmp(cp, "sem") == 0) {
+            variables_buf->sem.s= buf_val;
+            variables_buf->sem.length= unquoted_val.length; 
         } else {
             debug("lookup_function: cannot find option\n");
             return 0;
@@ -2280,7 +2329,7 @@ hnd_post_rd(coap_context_t  *ctx,
 
   unsigned char loc[LOCSIZE], *uri, *buf, *payload=NULL, block_buf[4];
   size_t loc_size, uri_size, key_size, payload_length;
-  str rt = {0, NULL}, lt = {0, NULL}, ep = {0, NULL}, d = {0, NULL}, et = {0, NULL}, con = {0, NULL}; /* store query parameters */
+  str rt = {0, NULL}, lt = {0, NULL}, ep = {0, NULL}, d = {0, NULL}, et = {0, NULL}, con = {0, NULL}, sem = {0, NULL}; /* store query parameters */
   coap_key_t *resource_key = {0};
 
   char *cp, *buf_address, *buf_op, seps[] = "=";
@@ -2351,6 +2400,9 @@ hnd_post_rd(coap_context_t  *ctx,
       } else if (strcmp(cp, "rt") == 0) {
           rt.s= (unsigned char *) coap_opt_value(query) + val_offset;
           rt.length= strlen(buf_op);        
+      } else if (strcmp(cp, "sem") == 0) {
+          sem.s= (unsigned char *) coap_opt_value(query) + val_offset;
+          sem.length= strlen(buf_op);        
       } else {
           response->hdr->code = COAP_RESPONSE_CODE(400);
           coap_free(cp);
@@ -2470,6 +2522,25 @@ hnd_post_rd(coap_context_t  *ctx,
     }
   }*/
 
+  if (sem.s) {
+    buf = (unsigned char *)coap_malloc(sem.length + 2);
+    if (buf) {
+      /* add missing quotes */
+      buf[0] = '"';
+      memcpy(buf + 1, sem.s, sem.length);
+      buf[sem.length + 1] = '"';
+      coap_add_attr(r,
+                    (unsigned char *)"sem",
+                    3,
+                    buf,
+                    sem.length + 2,COAP_ATTR_FLAGS_RELEASE_VALUE);
+    } else {
+      response->hdr->code = COAP_RESPONSE_CODE(503);
+      coap_free_resource(r);
+      coap_free(resource_key);
+      return;
+    }
+  }
 
   if (rt.s) {
     buf = (unsigned char *)coap_malloc(rt.length + 2);

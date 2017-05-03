@@ -51,6 +51,8 @@ typedef struct coap_variables_t {
   str ct;	/*Content Type*/
   str ins;	/*Resource Instance*/
   int exp; 	/*Export attribute*/
+  str sem; /*Semantic ID*/
+
 } coap_variables_t;
 
 typedef enum { 

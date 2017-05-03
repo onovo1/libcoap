@@ -421,7 +421,7 @@ coap_link_t *
 coap_add_link(coap_resource_t *resource, 
 	      const char *href, const char *ct, const char *rt, 
 	      const char *ifd, const char *rel, const char *ins, 
-              int exp) {
+              const char *sem, int exp) {
 
   coap_link_t *link;
 
@@ -454,6 +454,9 @@ coap_add_link(coap_resource_t *resource,
 
     link->ins.s = (unsigned char *)ins;
     link->ins.length = ins ? strlen(ins) : 0;
+
+    link->sem.s = (unsigned char *)sem;
+    link->sem.length = sem ? strlen(sem) : 0;
 
     link->exp = exp;
 
@@ -510,6 +513,10 @@ coap_delete_link(coap_resource_t *resource, coap_link_t *link) {
 
   if (link->ins.s){
     coap_free(link->ins.s);
+  }
+
+  if (link->sem.s){
+    coap_free(link->sem.s);
   }
 
   LL_DELETE(resource->links,link);
@@ -819,6 +826,12 @@ coap_print_sequence_links(coap_link_t *link, unsigned char *buf, const unsigned 
         COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";ins=", 5, *len);
     	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
 			  link->ins.s, link->ins.length, *len);
+    }
+
+    if (link->sem.s) {
+        COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";sem=", 5, *len);
+    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+			  link->sem.s, link->sem.length, *len);
     }
 
     if (link->exp) {
