@@ -1880,6 +1880,22 @@ lookup_resource(coap_variables_t *variables_buf, coap_resource_t *r, coap_group_
       return buf;
   }
 
+  if (lk_type == EP) {
+    if (variables_buf->rt.s){
+      attr = coap_find_attr(r, (const unsigned char *)"rt", 2);
+      if (!attr) return buf;
+      if (!match_options(variables_buf->rt, attr->value))      
+        return buf;
+    }
+
+    if (variables_buf->sem.s){
+      attr = coap_find_attr(r, (const unsigned char *)"sem", 3);
+      if (!attr) return buf;
+      if (!match_options(variables_buf->sem, attr->value))
+        return buf;
+    }
+  }
+
   /* Search the list of resources of a particular endpoint */
   LL_FOREACH(r->links, link) {
 
@@ -1895,10 +1911,12 @@ lookup_resource(coap_variables_t *variables_buf, coap_resource_t *r, coap_group_
         continue;
     }
 
-    if (variables_buf->rt.s) {
-      if (!link->rt.s) continue;
-      if (!match_options(variables_buf->rt, link->rt))
-        continue;
+    if (lk_type != EP) {
+      if (variables_buf->rt.s) {
+        if (!link->rt.s) continue;
+        if (!match_options(variables_buf->rt, link->rt))
+          continue;
+      }
     }
 
     if (variables_buf->ifd.s) {
@@ -1923,10 +1941,12 @@ lookup_resource(coap_variables_t *variables_buf, coap_resource_t *r, coap_group_
         continue;
     }
 
-    if (variables_buf->sem.s) {
-      if (!link->sem.s) continue;
-      if (!match_options(variables_buf->sem, link->sem))
-        continue;
+    if (lk_type != EP) {
+      if (variables_buf->sem.s) {
+        if (!link->sem.s) continue;
+        if (!match_options(variables_buf->sem, link->sem))
+          continue;
+      }
     }
 
     if (lk_type == GP){
