@@ -1545,10 +1545,11 @@ handle_request(coap_context_t *context, coap_queue_t *node) {
 	       if (coap_send(context, &node->local_if, 
 	        	      &node->remote, response) == COAP_INVALID_TID) {
 	         debug("cannot send response for message %d\n", node->pdu->hdr->id);
-	       }
+        }
       }
-      coap_delete_pdu(response);
-      response = NULL;
+	   }
+    coap_delete_pdu(response);
+    response = NULL;
     } else {
       warn("cannot generate response\r\n");
     }
