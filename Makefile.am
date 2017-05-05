@@ -30,13 +30,11 @@ EXTRA_DIST = \
   tests/test_uri.h \
   tests/test_wellknown.h
 
-<<<<<<< HEAD
 ##AM_CFLAGS = -I @top_builddir@/include/coap/ $(RE_CFLAGS) $(REW_CFLAGS) -std=c99 $(WARNING_FLAGS)
-AM_CFLAGS = -I @top_builddir@/include/coap/ -std=c99 $(WARNING_FLAGS)
+##AM_CFLAGS = -I @top_builddir@/include/coap/ -std=c99 $(WARNING_FLAGS)
 ##AM_LDFLAGS = $(RE_LIBS) $(REW_LIBS) 
-=======
 AM_CFLAGS = -I$(top_builddir)/include/coap -I$(top_srcdir)/include/coap $(WARNING_CFLAGS) -std=c99
->>>>>>> remotes/libcoap_origin/develop
+
 
 SUBDIRS = . $(DOC_DIR) tests examples
 

@@ -478,7 +478,7 @@ add_source_address(coap_address_t *peer) {
     break;
 
   case AF_INET6:
-    n += snprintf(buf + n, BUFSIZE - n,
+    snprintf(buf + n, BUFSIZE - n,
       "[%02x%02x:%02x%02x:%02x%02x:%02x%02x" \
       ":%02x%02x:%02x%02x:%02x%02x:%02x%02x]",
       peer->addr.sin6.sin6_addr.s6_addr[0],
@@ -498,9 +498,11 @@ add_source_address(coap_address_t *peer) {
       peer->addr.sin6.sin6_addr.s6_addr[14],
       peer->addr.sin6.sin6_addr.s6_addr[15]);
 
+    n += strlen(buf);
+
     if (peer->addr.sin6.sin6_port != htons(COAP_DEFAULT_PORT)) {
       n +=
-      snprintf(buf + n, BUFSIZE - n, ":%d", peer->addr.sin6.sin6_port) +1;
+      snprintf(buf + n -1, BUFSIZE - n+1, ":%d", peer->addr.sin6.sin6_port);
     }
     break;
 
@@ -2182,6 +2184,15 @@ lookup_resource(coap_variables_t *variables_buf, coap_resource_t *r, coap_group_
       return buf;
   }
 
+  if (lk_type == EP) {
+    if (variables_buf->rt.s){
+      attr = coap_find_attr(r, (const unsigned char *)"rt", 2);
+      if (!attr) return buf;
+      if (!match_options(variables_buf->rt, attr->value))      
+        return buf;
+    }
+  }
+
   /* Search the list of resources of a particular endpoint */
   LL_FOREACH(r->links, link) {
 
@@ -2197,10 +2208,12 @@ lookup_resource(coap_variables_t *variables_buf, coap_resource_t *r, coap_group_
         continue;
     }
 
-    if (variables_buf->rt.s) {
-      if (!link->rt.s) continue;
-      if (!match_options(variables_buf->rt, link->rt))
-        continue;
+    if (lk_type != EP) {
+      if (variables_buf->rt.s) {
+        if (!link->rt.s) continue;
+        if (!match_options(variables_buf->rt, link->rt))
+          continue;
+      }
     }
 
     if (variables_buf->ifd.s) {
