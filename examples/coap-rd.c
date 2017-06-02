@@ -25,13 +25,14 @@
 #include <signal.h>
 
 #include "coap_config.h"
-#include "coap.h"
-#include "coap_rd.h"
-#include "group.h"
+#include <coap/coap.h>
+#include <coap/group.h>
 
+#include "coap_rd.h"
 #include "coap_list.h"
-#include "utlist.h"
-#include "lifetime.h"
+#include <coap/utlist.h>
+#include <coap/resource.h>
+#include <coap/lifetime.h>
 
 #include "mjson.h"
 #include <errno.h>
