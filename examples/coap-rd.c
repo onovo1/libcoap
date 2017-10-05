@@ -958,8 +958,8 @@ static int parse_link_format(char *s, coap_resource_t *r, int update){
   char seps[] = ",", sep_c[] = ";", sep_eq[] = "=";
   char *href = NULL, *rel = NULL, *rt = NULL, *ifd = NULL, *ct = NULL, *ins = NULL, *sem = NULL, *buf = NULL;
   int exp = 0; 
-  coap_link_t *link_update;     
- 
+  coap_link_t *link_update;
+
   while ((cp = strsep (&s, seps))) {
     if (*cp != '\0'){
 
@@ -967,7 +967,13 @@ static int parse_link_format(char *s, coap_resource_t *r, int update){
         if (*sc != '\0'){
           /* Check href first*/
           if((strstr(sc, "<")!= NULL) && (strstr(sc, ">")!= NULL)) {
+    
             href = trimwhitespace(sc);
+
+            /* remove the \" character before the href field if exist */
+            if (href[0] == '\"'){
+              memmove(href, href+1, strlen(href));
+            }
 
             /* Only for the update operation: Remove the link if exist */            
             if (update){         
