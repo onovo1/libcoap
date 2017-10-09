@@ -421,7 +421,7 @@ coap_link_t *
 coap_add_link(coap_resource_t *resource, 
 	      const char *href, const char *ct, const char *rt, 
 	      const char *ifd, const char *rel, const char *ins, 
-              const char *sem, int exp) {
+              int exp) {
 
   coap_link_t *link;
 
@@ -454,9 +454,6 @@ coap_add_link(coap_resource_t *resource,
 
     link->ins.s = (unsigned char *)ins;
     link->ins.length = ins ? strlen(ins) : 0;
-
-    link->sem.s = (unsigned char *)sem;
-    link->sem.length = sem ? strlen(sem) : 0;
 
     link->exp = exp;
 
@@ -513,10 +510,6 @@ coap_delete_link(coap_resource_t *resource, coap_link_t *link) {
 
   if (link->ins.s){
     coap_free(link->ins.s);
-  }
-
-  if (link->sem.s){
-    coap_free(link->sem.s);
   }
 
   LL_DELETE(resource->links,link);
@@ -794,48 +787,42 @@ coap_print_sequence_links(coap_link_t *link, unsigned char *buf, const unsigned 
     PRINT_COND_WITH_OFFSET(buf, bufend, *offset, '\n', *len);
 
     if (link->href.s) {
-      	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
-		  	  link->href.s, link->href.length, *len);
+      COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+		  	 link->href.s, link->href.length, *len);
     }
 
     if (link->ct.s) {
-	COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";ct=", 4, *len);
-    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
-			  link->ct.s, link->ct.length, *len);
+	     COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";ct=", 4, *len);
+    	 COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+			   link->ct.s, link->ct.length, *len);
     }
 
     if (link->rt.s) {
-	COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";rt=", 4, *len);
-    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
-			  link->rt.s, link->rt.length, *len);
+	     COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";rt=", 4, *len);
+    	 COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+			   link->rt.s, link->rt.length, *len);
     }
 
     if (link->ifd.s) {
-        COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";if=", 4, *len);
-    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
-			  link->ifd.s, link->ifd.length, *len);
+      COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";if=", 4, *len);
+    	 COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+			   link->ifd.s, link->ifd.length, *len);
     }
 
     if (link->rel.s) {
-        COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";rel=", 5, *len);
-    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
-			  link->rel.s, link->rel.length, *len);
+      COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";rel=", 5, *len);
+    	 COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+			   link->rel.s, link->rel.length, *len);
     }
 
     if (link->ins.s) {
-        COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";ins=", 5, *len);
-    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
-			  link->ins.s, link->ins.length, *len);
-    }
-
-    if (link->sem.s) {
-        COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";sem=", 5, *len);
-    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
-			  link->sem.s, link->sem.length, *len);
+      COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";ins=", 5, *len);
+    	 COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+			   link->ins.s, link->ins.length, *len);
     }
 
     if (link->exp) {
-        COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";exp", 4, *len);
+      COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";exp", 4, *len);
     }
 
   return buf;

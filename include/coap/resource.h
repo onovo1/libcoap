@@ -65,7 +65,6 @@ typedef struct coap_link_t {
   str ifd;	/*Interface Description*/
   str ct;	/*Content Type*/
   str ins;	/*Resource Instance*/
-  str sem;	/*Semantic ID*/
   int exp; 	/*Export attribute*/
 } coap_link_t;
 
@@ -171,13 +170,12 @@ coap_resource_t *coap_resource_rd_init(const unsigned char *uri, size_t len, con
  * @param ifd      The Interface Description value or @c NULL if none.
  * @param rel      The Relation Type  value or @c NULL if none
  * @param ins      The Resource Instance Type  value or @c NULL if none
- * @param sem      The Semantic ID Type  value or @c NULL if none
  * @param exp      The Export Type value or @c 0 if none
  *
  * @return         A pointer to the new link or @c NULL on error.
  */
 coap_link_t *coap_add_link(coap_resource_t *resource, const char *href, const char *ct, const char *rt, 
-	      const char *ifd, const char *rel, const char *ins, const char *sem, int exp);
+	      const char *ifd, const char *rel, const char *ins, int exp);
 
 /**
  * Returns @p resource's coap_link_t object with given @p href if found, @c NULL
