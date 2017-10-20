@@ -1854,6 +1854,7 @@ lookup_resource(coap_variables_t *variables_buf, coap_resource_t *r, coap_group_
 
   if (lk_type == EP) {
     if (variables_buf->rt.s){
+
       attr = coap_find_attr(r, (const unsigned char *)"rt", 2);
       if (!attr) return buf;
       if (!match_options(variables_buf->rt, attr->value))      
@@ -1929,8 +1930,19 @@ lookup_resource(coap_variables_t *variables_buf, coap_resource_t *r, coap_group_
       buf = lookup_print_endpoint(r, buf, bufend, &len, &offset, lk_type);
     }
 
-    if ((lk_type != D) && (lk_type != GP))
+    if ((lk_type != D) && (lk_type != GP)) {
       buf = lookup_print_resource(link, buf, bufend, &len, &offset, lk_type);
+
+      if (lk_type == RES) {
+        //Add the semantic information into the resource
+        attr = coap_find_attr(r, (const unsigned char *)"sem", 3);
+        if (attr) {
+          COPY_COND_WITH_OFFSET(buf, bufend, offset, ";sem=", 5, len);
+       	  COPY_COND_WITH_OFFSET(buf, bufend, offset,
+                      			  attr->value.s, attr->value.length, len);
+        }
+      }
+    }
   }
 
   return buf;
