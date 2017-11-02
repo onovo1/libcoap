@@ -314,6 +314,18 @@ coap_pdu_init(unsigned char type,
  */
 void coap_pdu_clear(coap_pdu_t *pdu, size_t size);
 
+
+/**
+ * Creates a new pdu object and copy the content from @p pdu to   
+ * the new object. 
+ * 
+ * @param pdu   The original CoAP PDU.
+ * 
+ * @return      The new PDU object.
+ */
+
+coap_pdu_t* coap_clone_pdu(coap_pdu_t *pdu);
+
 /**
  * Creates a new CoAP PDU.
  * The object is created on the heap and must be released using

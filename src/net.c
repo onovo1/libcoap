@@ -595,6 +595,7 @@ coap_send_impl(coap_context_t *context,
 	       coap_pdu_t *pdu) {
   coap_tid_t id = COAP_INVALID_TID;
 
+
   if ( !context || !dst || !pdu )
   {
     return id;
@@ -620,6 +621,7 @@ coap_send(coap_context_t *context,
 	  const coap_endpoint_t *local_interface,
 	  const coap_address_t *dst, 
 	  coap_pdu_t *pdu) {
+
   return coap_send_impl(context, local_interface, dst, pdu);
 }
 
@@ -1403,11 +1405,14 @@ handle_request(coap_context_t *context, coap_queue_t *node) {
   coap_resource_t *resource;
   coap_group_t *group;
   coap_key_t key;
+  coap_opt_iterator_t opt_iter;
+  coap_opt_filter_t filter;
   /* The respond field indicates whether a response must be treated
    * specially due to a No-Response option that declares disinterest
    * or interest in a specific response class. DEFAULT indicates that
    * No-Response has not been specified. */
   enum respond_t respond = RESPONSE_DEFAULT;
+  unsigned char buf[3];
 
   coap_option_filter_clear(opt_filter);
 
@@ -1485,26 +1490,37 @@ handle_request(coap_context_t *context, coap_queue_t *node) {
 
       /* check for Observe option */
       if (h && resource->observable) {
-	observe = coap_check_option(node->pdu, COAP_OPTION_OBSERVE, &opt_iter);
-  	if (observe) {
-	  observe_action =
-	    coap_decode_var_bytes(coap_opt_value(observe),
-		  		  coap_opt_length(observe));
-	 
-	  if ((observe_action & COAP_OBSERVE_CANCEL) == 0) {
-	    coap_subscription_t *subscription;
 
-	    coap_log(LOG_DEBUG, "create new subscription\n");
-	    subscription = coap_add_observer(resource, &node->local_if, 
-		  			       &node->remote, &token);
-	    if (subscription) {
-	      coap_touch_observer(context, &node->remote, &token);
-	    }
-	  } else {
+      	observe = coap_check_option(node->pdu, COAP_OPTION_OBSERVE, &opt_iter);
+  	    if (observe) {
+	        observe_action =
+	          coap_decode_var_bytes(coap_opt_value(observe),
+		  		       coap_opt_length(observe));
+	 
+	        if ((observe_action & COAP_OBSERVE_CANCEL) == 0) {
+	          coap_subscription_t *subscription;
+
+	          coap_log(LOG_DEBUG, "create new subscription\n");
+	          subscription = coap_add_observer(resource, &node->local_if, 
+		  			       &node->remote, &token, node->pdu);
+
+           /* Initialize observe value. */
+           subscription->observe = 1;
+
+           //Add observe option in the response message
+           if (!coap_add_option(response, COAP_OPTION_OBSERVE,
+                    coap_encode_var_bytes(buf, subscription->observe), buf)) {
+              coap_log(LOG_DEBUG, "cannot add observe option to the message %d\n", response->hdr->id );
+           }
+
+	          if (subscription) {
+	            coap_touch_observer(context, &node->remote, &token);
+	          }
+	        } else {
             coap_log(LOG_DEBUG, "removed observer\n");
             coap_delete_observer(resource,  &node->remote, &token);
-          }
-	}
+         }
+	      }
       }
 
       if (h){

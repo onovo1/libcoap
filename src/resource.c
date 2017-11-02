@@ -906,9 +906,9 @@ coap_subscription_t *
 coap_add_observer(coap_resource_t *resource, 
 		  const coap_endpoint_t *local_interface,
 		  const coap_address_t *observer,
-		  const str *token) {
+		  const str *token, coap_pdu_t *pdu) {
   coap_subscription_t *s;
-  
+
   assert(observer);
 
   /* Check if there is already a subscription for this peer. */
@@ -932,7 +932,14 @@ coap_add_observer(coap_resource_t *resource,
   if (token && token->length) {
     s->token_length = token->length;
     memcpy(s->token, token->s, min(s->token_length, 8));
+  } 
+
+  if (pdu) {
+    s->pdu = coap_clone_pdu(pdu);
   }
+
+  /* Increment value for next Observe use. */
+  s->observe= 1;
 
   /* add subscriber to resource */
   LL_PREPEND(resource->subscribers, s);
@@ -967,6 +974,95 @@ coap_delete_observer(coap_resource_t *resource, const coap_address_t *observer,
   }
 
   return s != NULL;
+}
+
+void
+coap_notify_lookup_observers(coap_context_t *context, coap_resource_t *lookup) {
+  coap_method_handler_t h;
+  str token;
+  coap_pdu_t *response;
+  coap_subscription_t *obs;
+  unsigned char buf[3];
+
+    if (!lookup) return;
+    
+    /* retrieve GET handler, prepare response */
+    h = lookup->handler[COAP_REQUEST_GET - 1];
+    assert(h);		/* we do not allow subscriptions if no
+    * GET handler is defined */
+
+    LL_FOREACH(lookup->subscribers, obs) {
+
+      if (obs->dirty == 0)
+        /* running this resource due to dirty, but this observation's notification was already enqueued */
+        continue;
+
+      coap_tid_t tid = COAP_INVALID_TID;
+      obs->dirty = 0;
+      /* initialize response */
+      response = coap_pdu_init(COAP_MESSAGE_CON, 0, 0, COAP_MAX_PDU_SIZE);
+      if (!response) {
+        obs->dirty = 1;
+   	    debug("coap_notify_lookup_observers: pdu init failed, resource stays partially dirty\n");
+   	    continue;
+      }
+
+      if (!coap_add_token(response, obs->token_length, obs->token)) {
+        obs->dirty = 1;
+  	     debug("coap_notify_lookup_observers: cannot add token, resource stays partially dirty\n");
+  	     coap_delete_pdu(response);
+   	    continue;
+      }
+
+      token.length = obs->token_length;
+      token.s = obs->token;
+
+      /* Increment value for next Observe use. */
+      obs->observe++;
+
+      if (!coap_add_option(response, COAP_OPTION_OBSERVE,
+                    coap_encode_var_bytes(buf, obs->observe), buf)) {
+        obs->dirty = 1;
+        debug("coap_notify_lookup_observers: cannot add option observe, resource stays partially dirty\n");
+  	     coap_delete_pdu(response);
+   	    continue;
+      }
+
+      response->hdr->id = coap_new_message_id(context);
+     
+      if ((lookup->flags & COAP_RESOURCE_FLAGS_NOTIFY_CON) == 0
+        && obs->non_cnt < COAP_OBS_MAX_NON) {
+  	     response->hdr->type = COAP_MESSAGE_NON;
+      } else {
+   	    response->hdr->type = COAP_MESSAGE_CON;
+      }
+      /* fill with observer-specific data */
+      h(context, lookup, &obs->local_if, &obs->subscriber, obs->pdu, &token, response);
+
+      /* TODO: do not send response and remove observer when 
+       *  COAP_RESPONSE_CLASS(response->hdr->code) > 2
+       */
+
+      if (response->hdr->type == COAP_MESSAGE_CON) {
+   	    tid = coap_send_confirmed(context, &obs->local_if, &obs->subscriber, response);
+   	    obs->non_cnt = 0;
+      } else {
+   	    tid = coap_send(context, &obs->local_if, &obs->subscriber, response);
+  	     obs->non_cnt++;
+      }
+
+      if (COAP_INVALID_TID == tid || response->hdr->type != COAP_MESSAGE_CON)
+   	    coap_delete_pdu(response);
+
+      if (COAP_INVALID_TID == tid)
+      {
+   	    debug("coap_notify_lookup_observers: sending failed, resource stays partially dirty\n");
+        obs->dirty = 1;
+        obs->fail_cnt++;
+      }
+
+    }
+
 }
 
 static void
@@ -1079,11 +1175,12 @@ coap_remove_failed_observers(coap_context_t *context,
 	token->length == obs->token_length &&
 	memcmp(token->s, obs->token, token->length) == 0) {
       
+
       /* count failed notifies and remove when
        * COAP_MAX_FAILED_NOTIFY is reached */
-      if (obs->fail_cnt < COAP_OBS_MAX_FAIL)
+      if (obs->fail_cnt < COAP_OBS_MAX_FAIL) 
 	obs->fail_cnt++;
-      else {
+       else {
 	LL_DELETE(resource->subscribers, obs);
 	obs->fail_cnt = 0;
 	
@@ -1112,7 +1209,6 @@ void
 coap_handle_failed_notify(coap_context_t *context, 
 			  const coap_address_t *peer, 
 			  const str *token) {
-
   RESOURCES_ITER(context->resources, r) {
 	coap_remove_failed_observers(context, r, peer, token);
   }

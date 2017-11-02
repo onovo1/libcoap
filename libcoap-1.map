@@ -18,8 +18,10 @@ global:
   coap_cancel_all_messages;
   coap_can_exit;
   coap_check_notify;
+  coap_notify_lookup_observers;
   coap_check_option;
   coap_clock_init;
+  coap_clone_pdu;
   coap_clone_uri;
   coap_count_nodes_lifetime;
   coap_decode_var_bytes;

@@ -63,6 +63,10 @@ typedef struct coap_subscription_t {
                             *   dirty flag is set too) */
   size_t token_length;     /**< actual length of token */
   unsigned char token[8];  /**< token used for subscription */
+
+  unsigned int observe;   /** The next value to be used for Observe. */
+
+  coap_pdu_t *pdu;      /** Store the pdu of the lookup if possible**/
 } coap_subscription_t;
 
 void coap_subscription_init(coap_subscription_t *);

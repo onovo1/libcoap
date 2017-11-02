@@ -62,6 +62,7 @@ coap_block1_t *blocks = NULL; /* Pointer to the blockwise structure */
 unsigned int wait_seconds = 90;         /* default timeout in seconds */
 coap_tick_t max_wait;                   /* global timeout (changed by set_timeout()) */
 
+coap_key_t lookup_key;
 #ifdef __GNUC__
 #define UNUSED_PARAM __attribute__ ((unused))
 #else /* not a GCC */
@@ -479,7 +480,7 @@ static int parse_group_link_format(coap_context_t  *ctx, char *s, coap_group_t *
 
             /* If the resource already exist, we continue*/
             if (coap_get_resource_from_key(ctx, (unsigned char *)resource_key)==NULL) {
-              debug("parse_group_link_format: one of the resources do not exist\n");
+              debug("parse_group_link_format: resource does not exist in the system\n");
               coap_free(resource_key);
               coap_free(ep.s);
               return 0;
@@ -727,226 +728,6 @@ hnd_delete_group(coap_context_t  *ctx,
   }
 }
 
-static void
-hnd_post_rd_group(coap_context_t  *ctx,
-            struct coap_resource_t *resource UNUSED_PARAM,
-            const coap_endpoint_t *local_interface UNUSED_PARAM,
-            coap_address_t *peer UNUSED_PARAM,
-            coap_pdu_t *request,
-            str *token UNUSED_PARAM,
-            coap_pdu_t *response) {
-
-  coap_group_t *g;
-  coap_opt_iterator_t opt_iter;
-  coap_opt_t *query, *block_opt = NULL; 
-  unsigned char loc[LOCSIZE], *uri;
-  size_t loc_size, gp_size, key_size, uri_size, payload_length;
-  str gp = {0, NULL}, d = {0, NULL}, con = {0, NULL}; /* store query parameters */
-  unsigned int *int_gp_key;
-  coap_key_t gp_key = {0}, group_key = {0};
-  coap_opt_filter_t filter;
-  char seps[] = "=", gp_key_str[16] = {0};
-  char *cp, *buf_op, *buf_address;
-  coap_block1_t *result= NULL;
-  unsigned char block_buf[4], *payload=NULL;
-  int val_offset = 0, delete = 0;
-
-  /* Got some data, check if block1 option is set. */
-  block_opt = coap_check_option(request, COAP_OPTION_BLOCK1, &opt_iter);
-
-  if (block_opt) { 
-    /* handle Block1 */
-    if (!(result = coap_process_block1(request, response))) return;
-
-  }
-
-  memcpy(loc, RD_GROUP_STR, RD_GROUP_SIZE);
-
-  loc_size = RD_GROUP_SIZE;
-  loc[loc_size++] = '/';
-
-  /* store query parameters for later use */
-
-  coap_option_filter_clear(filter);
-  coap_option_setb(filter, COAP_OPTION_URI_QUERY);
-
-  coap_option_iterator_init(request, &opt_iter, filter);
-
-  while((query = coap_option_next(&opt_iter))) {
-
-    int length = coap_opt_length(query);
-
-    buf_op = (char *)coap_malloc(length + 1);
-    if (!buf_op) {
-      response->hdr->code = COAP_RESPONSE_CODE(503);
-      return;
-    }
-
-    // add \0 to the end of the payload 
-    memcpy(buf_op, coap_opt_value(query), length);
-    buf_op[length] = '\0';
-
-    cp = strsep (&buf_op, seps);
-
-    val_offset = buf_op - cp;
-
-    if ((*cp != '\0') && (cp != NULL)){
-      if (buf_op == NULL) {
-          response->hdr->code = COAP_RESPONSE_CODE(400);
-          return;
-      }
-      if (strcmp(cp, "gp") == 0) { 
-          gp.s= (unsigned char *) coap_opt_value(query) + val_offset;
-          gp.length= strlen(buf_op);        
-      } else if (strcmp(cp, "d") == 0) {
-          d.s= (unsigned char *) coap_opt_value(query) + val_offset;
-          d.length= strlen(buf_op);        
-      } else if (strcmp(cp, "con") == 0) {
-          con.s= (unsigned char *) coap_opt_value(query) + val_offset;
-          con.length= strlen(buf_op);        
-      } else {
-          debug("hnd_post_rd_group: cannot find option\n");
-          response->hdr->code = COAP_RESPONSE_CODE(400);
-          coap_free(cp);
-          return;
-      }
-    }
-    coap_free(cp);
-  }
-
-  if ((gp.length) && (gp.length<=63)) {   /* client has specified a group name */
-
-    /* create a key from the ep node */
-    gp_size = min(gp.length, LOCSIZE - loc_size - 1);
-    coap_hash_path(gp.s, gp_size, gp_key);
-
-    /* translate the key into a string */
-    int_gp_key = (void *)(&gp_key);
-    snprintf(gp_key_str, 16, "%u", *int_gp_key);
-
-    /* rd-group/gp_key_str */
-    memcpy(loc + loc_size, gp_key_str, min(strlen(gp_key_str), LOCSIZE - loc_size - 1));
-    key_size = min(strlen(gp_key_str), LOCSIZE - loc_size - 1) + loc_size;
-
-    /* create the final key of rd/gp_key_str. We will send rd/gp_key_str to the client */
-    coap_hash_path(loc, key_size, group_key);
-
-    /* If the group already exist, we delete it and create it again*/
-    if (coap_get_group_from_key(ctx, group_key)!=NULL) {
-      delete = 1;
-      debug("hnd_post_rd_group: the group already exist, we delete it and create a new one\n");
-    }
-  } else {   /* create response error */
-    response->hdr->code = COAP_RESPONSE_CODE(400);
-    return;
-  }
-
-  /* Create a new uri rd-group/ep-name */
-  uri = (unsigned char *)coap_malloc(LOCSIZE);
-  if (!uri) {
-    response->hdr->code = COAP_RESPONSE_CODE(503);
-    return;
-  }
-
-  memcpy(uri, RD_GROUP_STR, RD_GROUP_SIZE);
-
-  uri_size = RD_GROUP_SIZE;
-  uri[uri_size++] = '/';
-
-  memcpy(uri + uri_size, gp.s, min(gp.length, LOCSIZE - uri_size - 1));
-  uri_size += min(gp.length, LOCSIZE - uri_size - 1); 
-  uri[uri_size] = '\0';
-
-  g = coap_group_rd_init(uri, uri_size, loc, key_size, d, con, hnd_delete_group);
-
-  if (g == NULL){
-    response->hdr->code = COAP_RESPONSE_CODE(503);
-    coap_free_group(g);
-    return;
-  }
-
-  /* Store the address of the device*/
-  if ((buf_address = add_source_address(peer))!= NULL){
-    g->A.s= (unsigned char *)buf_address;
-    g->A.length= strlen(buf_address);
-  } else {
-      /* create response error */
-      response->hdr->code = COAP_RESPONSE_CODE(503);
-      coap_free_group(g);
-      return;
-  } 
-
-  /* read the payload */
-  if (block_opt) { 
-    if (result){
-      payload = result->payload;
-    }
-  } else {
-    /* read the payload */
-    if (request->data){
-      if (coap_get_data(request, &payload_length, &payload)) {
-        if (payload) {
-          // add \0 to the end of the payload 
-          payload[payload_length-1] = '\0';
-        }
-      }
-    }
-  }
-
-  /* read the payload */
-  if (payload){
-    if (!read_group_payload(ctx, request, g, payload)) {
-      /* create response error */
-      response->hdr->code = COAP_RESPONSE_CODE(400);
-      coap_free_group(g);
-      return;
-    }
-  }
-
-  //Delete the previous group
-  if (delete){ 
-    coap_delete_group(ctx, group_key);
-  }
-
-  coap_add_group(ctx, g);
-
-  /* create response */
-
-  response->hdr->code = COAP_RESPONSE_CODE(201);
-
-  /* split path into segments and add Location-Path options */
-  unsigned char _b[LOCSIZE];
-  unsigned char *b = _b;
-  size_t buflen = LOCSIZE;
-  int nseg;
-
-  nseg = coap_split_path(loc, key_size, b, &buflen);
-
-  while (nseg--) {
-    coap_add_option(response,
-                    COAP_OPTION_LOCATION_PATH,
-                    coap_opt_length(b),
-                    coap_opt_value(b));
-    b += COAP_OPT_SIZE(b);
-  }
-
-  if (block_opt) { 
-    if (result){
-      coap_add_option(response,
-                      COAP_OPTION_BLOCK1,
-                      coap_encode_var_bytes(block_buf,
-                             ((result->num) << 4) | result->m << 3 |
-                              result->szx), block_buf);
-      delete_block(result);
-    }
-  }
-
-  /*If DEBUG active, print the response */
-  if (LOG_DEBUG <= coap_get_log_level()) {
-    coap_show_pdu(response);
-  }
-
-}
 
 /**********************************************************/
 /***                 RESOURCE FUNTIONS                  ***/
@@ -1610,61 +1391,6 @@ hnd_delete_resource(coap_context_t  *ctx,
 
 }
 
-static unsigned char *
-lookup_print_resource(coap_link_t *link, unsigned char *buf, const unsigned char *bufend, size_t *len, size_t *offset, Option_type lk_type){
-
-    if (lk_type != RES)
-    	PRINT_COND_WITH_OFFSET(buf, bufend, *offset, '\n', *len);
-
-    if (link->href.s) {
-      if (lk_type != RES) {
-      	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
-		  	  link->href.s, link->href.length, *len);
-      } else {
-        /* Remove the '<' from the ref*/
-        COPY_COND_WITH_OFFSET(buf, bufend, *offset,
-		  	  (link->href.length>0) ? link->href.s+1 : link->href.s, 
-          (link->href.length>0) ? link->href.length-1 : link->href.length, *len);
-      }
-    }
-    if (link->ct.s) {
-    	COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";ct=", 4, *len);
-    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
-			  link->ct.s, link->ct.length, *len);
-    }
-
-    if (link->rt.s) {
-    	COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";rt=", 4, *len);
-    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
-			  link->rt.s, link->rt.length, *len);
-    }
-
-    if (link->ifd.s) {
-      COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";if=", 4, *len);
-    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
-			  link->ifd.s, link->ifd.length, *len);
-    }
-
-    if (link->rel.s) {
-      COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";rel=", 5, *len);
-    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
-			  link->rel.s, link->rel.length, *len);
-    }
-
-    if (link->ins.s) {
-      COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";ins=", 5, *len);
-    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
-			  link->ins.s, link->ins.length, *len);
-    }
-
-    if (link->exp) {
-      COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";exp", 4, *len);
-    }
-
-  return buf;
-
-}
-
 static unsigned char * 
 lookup_print_endpoint(coap_resource_t *r, unsigned char *buf, const unsigned char *bufend, size_t *len, size_t *offset, Option_type lk_type){
 
@@ -1752,62 +1478,59 @@ lookup_print_endpoint(coap_resource_t *r, unsigned char *buf, const unsigned cha
 
 }
 
-static void
-coap_delete_variable(coap_variables_t *variable){
+static unsigned char *
+lookup_print_resource(coap_link_t *link, unsigned char *buf, const unsigned char *bufend, size_t *len, size_t *offset, Option_type lk_type){
 
-    if (!variable)
-      return;
+    if (lk_type != RES)
+    	PRINT_COND_WITH_OFFSET(buf, bufend, *offset, '\n', *len);
 
-    if (variable->d.s){
-      coap_free(variable->d.s);
+    if (link->href.s) {
+      if (lk_type != RES) {
+      	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+		  	  link->href.s, link->href.length, *len);
+      } else {
+        /* Remove the '<' from the ref*/
+        COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+		  	  (link->href.length>0) ? link->href.s+1 : link->href.s, 
+          (link->href.length>0) ? link->href.length-1 : link->href.length, *len);
+      }
+    }
+    if (link->ct.s) {
+    	COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";ct=", 4, *len);
+    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+			  link->ct.s, link->ct.length, *len);
     }
 
-    if (variable->ep.s){
-      coap_free(variable->ep.s);
+    if (link->rt.s) {
+    	COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";rt=", 4, *len);
+    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+			  link->rt.s, link->rt.length, *len);
     }
 
-    if (variable->gp.s){
-      coap_free(variable->gp.s);
+    if (link->ifd.s) {
+      COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";if=", 4, *len);
+    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+			  link->ifd.s, link->ifd.length, *len);
     }
 
-    if (variable->et.s){
-      coap_free(variable->et.s);
+    if (link->rel.s) {
+      COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";rel=", 5, *len);
+    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+			  link->rel.s, link->rel.length, *len);
     }
 
-    if (variable->href.s){
-      coap_free(variable->href.s);
+    if (link->ins.s) {
+      COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";ins=", 5, *len);
+    	COPY_COND_WITH_OFFSET(buf, bufend, *offset,
+			  link->ins.s, link->ins.length, *len);
     }
 
-    if (variable->rel.s){
-      coap_free(variable->rel.s);
+    if (link->exp) {
+      COPY_COND_WITH_OFFSET(buf, bufend, *offset, ";exp", 4, *len);
     }
 
-    if (variable->rt.s){
-      coap_free(variable->rt.s);
-    }
+  return buf;
 
-    if (variable->ifd.s){
-      coap_free(variable->ifd.s);
-    }
-
-    if (variable->ct.s){
-      coap_free(variable->ct.s);
-    }
-
-    if (variable->ins.s){
-      coap_free(variable->ins.s);
-    }
-
-    if (variable->sem.s){
-      coap_free(variable->sem.s);
-    }
-
-  #ifdef WITH_LWIP
-    memp_free(MEMP_COAP_VARIABLES, variable);
-  #endif
-  #ifndef WITH_LWIP
-    coap_free_type(COAP_VARIABLES, variable);
-  #endif
 }
 
 static unsigned char * 
@@ -1946,6 +1669,64 @@ lookup_resource(coap_variables_t *variables_buf, coap_resource_t *r, coap_group_
   }
 
   return buf;
+}
+
+static void
+coap_delete_variable(coap_variables_t *variable){
+
+    if (!variable)
+      return;
+
+    if (variable->d.s){
+      coap_free(variable->d.s);
+    }
+
+    if (variable->ep.s){
+      coap_free(variable->ep.s);
+    }
+
+    if (variable->gp.s){
+      coap_free(variable->gp.s);
+    }
+
+    if (variable->et.s){
+      coap_free(variable->et.s);
+    }
+
+    if (variable->href.s){
+      coap_free(variable->href.s);
+    }
+
+    if (variable->rel.s){
+      coap_free(variable->rel.s);
+    }
+
+    if (variable->rt.s){
+      coap_free(variable->rt.s);
+    }
+
+    if (variable->ifd.s){
+      coap_free(variable->ifd.s);
+    }
+
+    if (variable->ct.s){
+      coap_free(variable->ct.s);
+    }
+
+    if (variable->ins.s){
+      coap_free(variable->ins.s);
+    }
+
+    if (variable->sem.s){
+      coap_free(variable->sem.s);
+    }
+
+  #ifdef WITH_LWIP
+    memp_free(MEMP_COAP_VARIABLES, variable);
+  #endif
+  #ifndef WITH_LWIP
+    coap_free_type(COAP_VARIABLES, variable);
+  #endif
 }
 
 static coap_print_status_t 
@@ -2209,6 +1990,7 @@ lookup_function(coap_context_t  *ctx, coap_pdu_t *request, unsigned char *buf, s
   return result;
 }
 
+
 static void
 hnd_get_rd(coap_context_t  *ctx,
            struct coap_resource_t *resource UNUSED_PARAM,
@@ -2301,10 +2083,505 @@ hnd_get_rd(coap_context_t  *ctx,
     response->length = sizeof(coap_hdr_t) + response->hdr->token_length;
     return;
   }
- 
+
   response->length += COAP_PRINT_OUTPUT_LENGTH(result);
 
   return;
+
+}
+
+static void
+coap_search_lookup_subscriptions(coap_context_t *ctx, coap_resource_t *r, coap_group_t *g) {
+  coap_subscription_t *obs;
+
+  coap_opt_t *option;
+  char *cp, *buf_op; 
+  unsigned char *buf_val, *loc;
+  unsigned char buf[3] = {0};
+  char seps[] = "=";
+  const unsigned char *bufend = buf + sizeof(buf);
+  coap_opt_iterator_t opt_iter;
+  coap_opt_filter_t filter;
+
+  coap_variables_t *variables_buf;
+  size_t offset = 0;
+  str unquoted_val = {0, NULL};
+  coap_resource_t *lookups;
+  Option_type type = 0;
+  int group_printed = 0, loc_size;
+  coap_key_t *resource_key = {0};
+  coap_endpoints_t *endpoint;
+  coap_resource_t *resource = NULL;
+
+  lookups = coap_get_resource_from_key(ctx, lookup_key);
+
+  if (!lookups) return;
+
+  LL_FOREACH(lookups->subscribers, obs) {
+
+    /* Create the link structure to store all the variables temporarily*/ 
+    #ifdef WITH_LWIP
+      variables_buf = (coap_variables_t *)memp_malloc(MEMP_COAP_VARIABLES);
+    #endif
+    #ifndef WITH_LWIP
+      variables_buf = (coap_variables_t *)coap_malloc_type(COAP_VARIABLES, sizeof(coap_variables_t));
+    #endif
+    if (!variables_buf) {
+      debug("coap_search_lookup_subscriptions: no memory left\n");
+    }
+
+
+    /* store URI path for later use */
+    coap_option_filter_clear(filter);
+    coap_option_setb(filter, COAP_OPTION_URI_PATH);
+
+    coap_option_iterator_init(obs->pdu, &opt_iter, filter);
+
+    while ((option = coap_option_next(&opt_iter))){
+
+      if (strncmp((const char *)coap_opt_value(option), "rd-lookup", 9) == 0){
+
+        option = coap_option_next(&opt_iter);
+
+        if (!option) break;
+  #if defined (COAP_TEST_ELEMENTS)
+        if (coap_opt_size(option)<=1) break;
+  #endif
+        if ((coap_opt_length(option) == 1) && strncmp((const char *)coap_opt_value(option), "d", 1) == 0){
+          type = D;
+        } else if ((coap_opt_length(option) == 2) && strncmp((const char *)coap_opt_value(option), "ep", 2) == 0){
+          type = EP;
+        } else if ((coap_opt_length(option) == 3) && strncmp((const char *)coap_opt_value(option), "res", 3) == 0){
+          type = RES;
+        } else if ((coap_opt_length(option) == 2) && strncmp((const char *)coap_opt_value(option), "gp", 2) == 0){
+          type = GP;
+        }else {
+        }   
+      } 
+    }
+
+    /* store URI query for later use */
+    memset(variables_buf, 0, sizeof(coap_variables_t));
+
+    coap_option_filter_clear(filter);
+    coap_option_setb(filter, COAP_OPTION_URI_QUERY);
+
+    coap_option_iterator_init(obs->pdu, &opt_iter, filter);
+
+    while((option = coap_option_next(&opt_iter))) {
+
+      int length = coap_opt_length(option) + 1;
+      buf_op = (char *)coap_malloc(length);
+      if (!buf_op) {
+        return;
+      }
+
+      // add \0 to the end of the payload 
+      buf_op[length-1] = '\0';
+
+      memcpy(buf_op, coap_opt_value(option), coap_opt_length(option));
+
+      cp = strsep (&buf_op, seps);
+
+      /* Check if the option has a maximum of 63 bytes  */
+      if ((buf_op) && strlen(buf_op)>63) {
+        debug("coap_search_lookup_subscriptions: option is too big\n");
+        return;
+      }
+
+      /* Check if the option has quotation marks ('"'). If so, remove them */
+      if ((buf_op) && (buf_op[0] == '"') && (buf_op[strlen(buf_op)-1] == '"')) {          
+        unquoted_val.s = (unsigned char *)buf_op + 1;
+        unquoted_val.length = strlen(buf_op) - 2;
+        unquoted_val.s[unquoted_val.length] = '\0';
+      } else {
+        unquoted_val.s = (unsigned char *)buf_op;
+        unquoted_val.length = (buf_op == NULL) ? 0 : strlen(buf_op);
+      }
+
+      if ((*cp != '\0') && (cp != NULL)){
+          buf_val = coap_malloc(unquoted_val.length+1);
+          if (!buf_val) {
+           return;
+          }
+          memcpy(buf_val, unquoted_val.s, unquoted_val.length);
+          buf_val[unquoted_val.length] = '\0';
+
+          if (strcmp(cp, "d") == 0) {
+              variables_buf->d.s= buf_val;
+              variables_buf->d.length= unquoted_val.length;
+          } else if (strcmp(cp, "et") == 0) {
+              variables_buf->et.s= buf_val;
+              variables_buf->et.length= unquoted_val.length; 
+          } else if (strcmp(cp, "ep") == 0) {
+              variables_buf->ep.s= buf_val;
+              variables_buf->ep.length= unquoted_val.length; 
+          } else if (strcmp(cp, "gp") == 0) {
+              variables_buf->gp.s= buf_val;
+              variables_buf->gp.length= unquoted_val.length; 
+          } else if (strcmp(cp, "rel") == 0) {
+              variables_buf->rel.s= buf_val;
+              variables_buf->rel.length= unquoted_val.length; 
+          } else if (strcmp(cp, "ct") == 0) {
+              variables_buf->ct.s= buf_val;
+              variables_buf->ct.length= unquoted_val.length; 
+          } else if (strcmp(cp, "rt") == 0) {
+              variables_buf->rt.s= buf_val;
+              variables_buf->rt.length= unquoted_val.length; 
+          } else if (strcmp(cp, "if") == 0) {
+              variables_buf->ifd.s= buf_val;
+              variables_buf->ifd.length= unquoted_val.length; 
+          } else if (strcmp(cp, "href") == 0) {
+              variables_buf->href.s= buf_val;
+              variables_buf->href.length= unquoted_val.length; 
+          } else if (strcmp(cp, "ins") == 0) {
+              variables_buf->ins.s= buf_val;
+              variables_buf->ins.length= unquoted_val.length; 
+          } else if (strcmp(cp, "sem") == 0) {
+              variables_buf->sem.s= buf_val;
+              variables_buf->sem.length= unquoted_val.length; 
+          } else {
+              debug("coap_search_lookup_subscriptions: cannot find option\n");
+              return;
+          }
+        coap_free(cp);
+      }
+    }
+
+    /* Check if the resource is used in any lookup */
+    if (type == D) {
+
+      /* Search in the list of groups*/
+      if (g) {
+        group_printed = 0;
+
+        /*Query all the attributes of the group*/
+        if (variables_buf->d.s) {
+          if (!g->d.s) continue;
+          if (!match_options(variables_buf->d, g->d))
+            continue;
+        }
+      }
+
+      /* Search for the endpoint */
+      if (r) {
+        lookup_resource(variables_buf, r, NULL, buf, bufend, sizeof(buf), offset, type, 0);
+        if (strlen((const char*)buf) > 0)  goto finish;
+      }
+    } else if ((variables_buf->gp.s) || (type == GP)){
+
+      /* Search in the list of groups*/
+      if (g) {
+
+        group_printed = 0;
+
+        /*Query all the attributes of the group*/
+        if (variables_buf->d.s) {
+          if (!g->d.s) continue;
+          if (!match_options(variables_buf->d, g->d))
+            continue;
+        }
+
+        if (variables_buf->gp.s) {
+          if (!g->uri.s) continue;
+
+          //remove the 'rd-group/' from the gp
+          unquoted_val.s = g->uri.s + 9;
+          unquoted_val.length = g->uri.length - 9;
+
+          if (!match_options(variables_buf->gp, unquoted_val))
+            continue;
+        }
+
+        /* Search the list of endpoints of a particular group*/
+        LL_FOREACH(g->endpoints, endpoint) {
+
+          /*Look for the endpoint*/
+          if (!endpoint->ep.s) continue;
+
+          unquoted_val = remove_cotation_marks(endpoint->ep);
+
+          loc = (unsigned char *)coap_malloc(LOCSIZE);
+          if (!loc) {
+            goto finish;
+          }
+          memcpy(loc, RD_ROOT_STR, RD_ROOT_SIZE);
+
+          loc_size = RD_ROOT_SIZE;
+
+          loc[loc_size++] = '/';
+          loc[loc_size] = '\0';
+
+          resource_key =  coap_build_key_for_resource(unquoted_val, loc, LOCSIZE);
+
+          coap_free(loc);
+
+          if (!(resource = coap_get_resource_from_key(ctx, (unsigned char *)resource_key))) {
+            coap_free(resource_key);
+            continue; 
+          }
+          coap_free(resource_key);
+
+          /*Query all the attributes of the endpoint*/
+          lookup_resource(variables_buf, resource, g, buf, bufend, sizeof(buf), offset, type, &group_printed);
+          if (strlen((const char*)buf) > 0)  goto finish;            
+        }
+
+        if (type == GP){
+          if (!group_printed){
+            size_t len = sizeof(buf);
+            lookup_print_group(g, buf, bufend, &len, &offset, type);
+            if (strlen((const char*)buf) > 0)  goto finish;            
+          }
+        }
+      }
+    } else { 
+
+      /* Search for the endpoint */
+      if (r) {
+        lookup_resource(variables_buf, r, NULL, buf, bufend, sizeof(buf), offset, type, 0);
+        if (strlen((const char*)buf) > 0)  goto finish;        
+      }
+    }
+
+finish:
+
+    //Check if the existing 'observe' lookup maps this resource
+    if (strlen((const char*)buf) > 0) {
+      //Mark the lookup to send the notification later
+      obs->dirty=1;
+
+      //Clean the buffer
+      memset(&buf, 0, sizeof(buf));
+    }
+
+    //Delete the struct
+    coap_delete_variable(variables_buf);
+
+  }
+}
+
+static void
+hnd_post_rd_group(coap_context_t  *ctx,
+            struct coap_resource_t *resource UNUSED_PARAM,
+            const coap_endpoint_t *local_interface UNUSED_PARAM,
+            coap_address_t *peer UNUSED_PARAM,
+            coap_pdu_t *request,
+            str *token UNUSED_PARAM,
+            coap_pdu_t *response) {
+
+  coap_group_t *g;
+  coap_opt_iterator_t opt_iter;
+  coap_opt_t *query, *block_opt = NULL; 
+  unsigned char loc[LOCSIZE], *uri;
+  size_t loc_size, gp_size, key_size, uri_size, payload_length;
+  str gp = {0, NULL}, d = {0, NULL}, con = {0, NULL}; /* store query parameters */
+  unsigned int *int_gp_key;
+  coap_key_t gp_key = {0}, group_key = {0};
+  coap_opt_filter_t filter;
+  char seps[] = "=", gp_key_str[16] = {0};
+  char *cp, *buf_op, *buf_address;
+  coap_block1_t *result= NULL;
+  unsigned char block_buf[4], *payload=NULL;
+  int val_offset = 0, delete = 0;
+
+  /* Got some data, check if block1 option is set. */
+  block_opt = coap_check_option(request, COAP_OPTION_BLOCK1, &opt_iter);
+
+  if (block_opt) { 
+    /* handle Block1 */
+    if (!(result = coap_process_block1(request, response))) return;
+
+  }
+
+  memcpy(loc, RD_GROUP_STR, RD_GROUP_SIZE);
+
+  loc_size = RD_GROUP_SIZE;
+  loc[loc_size++] = '/';
+
+  /* store query parameters for later use */
+
+  coap_option_filter_clear(filter);
+  coap_option_setb(filter, COAP_OPTION_URI_QUERY);
+
+  coap_option_iterator_init(request, &opt_iter, filter);
+
+  while((query = coap_option_next(&opt_iter))) {
+
+    int length = coap_opt_length(query);
+
+    buf_op = (char *)coap_malloc(length + 1);
+    if (!buf_op) {
+      response->hdr->code = COAP_RESPONSE_CODE(503);
+      return;
+    }
+
+    // add \0 to the end of the payload 
+    memcpy(buf_op, coap_opt_value(query), length);
+    buf_op[length] = '\0';
+
+    cp = strsep (&buf_op, seps);
+
+    val_offset = buf_op - cp;
+
+    if ((*cp != '\0') && (cp != NULL)){
+      if (buf_op == NULL) {
+          response->hdr->code = COAP_RESPONSE_CODE(400);
+          return;
+      }
+      if (strcmp(cp, "gp") == 0) { 
+          gp.s= (unsigned char *) coap_opt_value(query) + val_offset;
+          gp.length= strlen(buf_op);        
+      } else if (strcmp(cp, "d") == 0) {
+          d.s= (unsigned char *) coap_opt_value(query) + val_offset;
+          d.length= strlen(buf_op);        
+      } else if (strcmp(cp, "con") == 0) {
+          con.s= (unsigned char *) coap_opt_value(query) + val_offset;
+          con.length= strlen(buf_op);        
+      } else {
+          debug("hnd_post_rd_group: cannot find option\n");
+          response->hdr->code = COAP_RESPONSE_CODE(400);
+          coap_free(cp);
+          return;
+      }
+    }
+    coap_free(cp);
+  }
+
+  if ((gp.length) && (gp.length<=63)) {   /* client has specified a group name */
+
+    /* create a key from the ep node */
+    gp_size = min(gp.length, LOCSIZE - loc_size - 1);
+    coap_hash_path(gp.s, gp_size, gp_key);
+
+    /* translate the key into a string */
+    int_gp_key = (void *)(&gp_key);
+    snprintf(gp_key_str, 16, "%u", *int_gp_key);
+
+    /* rd-group/gp_key_str */
+    memcpy(loc + loc_size, gp_key_str, min(strlen(gp_key_str), LOCSIZE - loc_size - 1));
+    key_size = min(strlen(gp_key_str), LOCSIZE - loc_size - 1) + loc_size;
+
+    /* create the final key of rd/gp_key_str. We will send rd/gp_key_str to the client */
+    coap_hash_path(loc, key_size, group_key);
+
+    /* If the group already exist, we delete it and create it again*/
+    if (coap_get_group_from_key(ctx, group_key)!=NULL) {
+      delete = 1;
+      debug("hnd_post_rd_group: the group already exist, we delete it and create a new one\n");
+    }
+  } else {   /* create response error */
+    response->hdr->code = COAP_RESPONSE_CODE(400);
+    return;
+  }
+
+  /* Create a new uri rd-group/ep-name */
+  uri = (unsigned char *)coap_malloc(LOCSIZE);
+  if (!uri) {
+    response->hdr->code = COAP_RESPONSE_CODE(503);
+    return;
+  }
+
+  memcpy(uri, RD_GROUP_STR, RD_GROUP_SIZE);
+
+  uri_size = RD_GROUP_SIZE;
+  uri[uri_size++] = '/';
+
+  memcpy(uri + uri_size, gp.s, min(gp.length, LOCSIZE - uri_size - 1));
+  uri_size += min(gp.length, LOCSIZE - uri_size - 1); 
+  uri[uri_size] = '\0';
+
+  g = coap_group_rd_init(uri, uri_size, loc, key_size, d, con, hnd_delete_group);
+
+  if (g == NULL){
+    response->hdr->code = COAP_RESPONSE_CODE(503);
+    coap_free_group(g);
+    return;
+  }
+
+  /* Store the address of the device*/
+  if ((buf_address = add_source_address(peer))!= NULL){
+    g->A.s= (unsigned char *)buf_address;
+    g->A.length= strlen(buf_address);
+  } else {
+      /* create response error */
+      response->hdr->code = COAP_RESPONSE_CODE(503);
+      coap_free_group(g);
+      return;
+  } 
+
+  /* read the payload */
+  if (block_opt) { 
+    if (result){
+      payload = result->payload;
+    }
+  } else {
+    /* read the payload */
+    if (request->data){
+      if (coap_get_data(request, &payload_length, &payload)) {
+        if (payload) {
+          // add \0 to the end of the payload 
+          payload[payload_length-1] = '\0';
+        }
+      }
+    }
+  }
+
+  /* read the payload */
+  if (payload){
+    if (!read_group_payload(ctx, request, g, payload)) {
+      /* create response error */
+      response->hdr->code = COAP_RESPONSE_CODE(400);
+      coap_free_group(g);
+      return;
+    }
+  }
+
+  //Delete the previous group
+  if (delete){ 
+    coap_delete_group(ctx, group_key);
+  }
+
+  coap_add_group(ctx, g);
+
+  /*Check if some lookups are observing this resource */
+  coap_search_lookup_subscriptions(ctx, NULL, g);
+
+  /* create response */
+
+  response->hdr->code = COAP_RESPONSE_CODE(201);
+
+  /* split path into segments and add Location-Path options */
+  unsigned char _b[LOCSIZE];
+  unsigned char *b = _b;
+  size_t buflen = LOCSIZE;
+  int nseg;
+
+  nseg = coap_split_path(loc, key_size, b, &buflen);
+
+  while (nseg--) {
+    coap_add_option(response,
+                    COAP_OPTION_LOCATION_PATH,
+                    coap_opt_length(b),
+                    coap_opt_value(b));
+    b += COAP_OPT_SIZE(b);
+  }
+
+  if (block_opt) { 
+    if (result){
+      coap_add_option(response,
+                      COAP_OPTION_BLOCK1,
+                      coap_encode_var_bytes(block_buf,
+                             ((result->num) << 4) | result->m << 3 |
+                              result->szx), block_buf);
+      delete_block(result);
+    }
+  }
+
+  /*If DEBUG active, print the response */
+  if (LOG_DEBUG <= coap_get_log_level()) {
+    coap_show_pdu(response);
+  }
 
 }
 
@@ -2701,6 +2978,9 @@ hnd_post_rd(coap_context_t  *ctx,
     coap_show_pdu(response);
   }
 
+  /*Check if some lookups are observing this resource */
+  coap_search_lookup_subscriptions(ctx, r, NULL);
+
 }
 
 static void
@@ -2723,6 +3003,12 @@ init_resources(coap_context_t *ctx) {
 
   coap_add_attr(l, (unsigned char *)"rt", 2, (unsigned char *)"\"core.rd-lookup\"", 16, 0);
   coap_add_attr(l, (unsigned char *)"ct", 2, (unsigned char *)"40", 2, 0);
+  l->observable = 1;
+
+printf("call custom handler for resource 0x%02x%02x%02x%02x\n", 
+	  l->key[0], l->key[1], l->key[2], l->key[3]);
+  
+  memcpy(lookup_key, l->key, sizeof(l->key));
 
   coap_add_resource(ctx, l);
 
@@ -2881,6 +3167,7 @@ main(int argc, char **argv) {
   char *group = NULL;
   int opt;
   coap_log_t log_level = LOG_WARNING;
+  coap_resource_t *lookup = NULL;
 
   while ((opt = getopt(argc, argv, "A:g:p:v:")) != -1) {
     switch (opt) {
@@ -2921,6 +3208,9 @@ main(int argc, char **argv) {
   init_resources(ctx);
 
   signal(SIGINT, handle_sigint);
+
+
+  lookup = coap_get_resource_from_key(ctx, lookup_key);
 
   while ( !quit ) {
 
@@ -2966,7 +3256,12 @@ main(int argc, char **argv) {
       } else {            /* timeout */
         /* coap_check_resource_list( ctx ); */
     }
+
+    /* check if we have to send observe notifications */
+    coap_notify_lookup_observers(ctx, lookup);
+
   }
+
 
   coap_free_context( ctx );
 

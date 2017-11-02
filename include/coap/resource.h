@@ -221,6 +221,10 @@ coap_resource_set_mode(coap_resource_t *r, int mode) {
   r->flags = (r->flags & !COAP_RESOURCE_FLAGS_NOTIFY_CON) | mode;
 }
 
+/** Notify the subscribers about a new observation
+**/
+void
+coap_notify_lookup_observers(coap_context_t *context, coap_resource_t *lookup);
 /**
  * Registers the given @p resource for @p context. The resource must have been
  * created by coap_resource_init(), the storage allocated for the resource will
@@ -445,7 +449,7 @@ void coap_hash_request_uri(const coap_pdu_t *request, coap_key_t key);
 coap_subscription_t *coap_add_observer(coap_resource_t *resource,
                                        const coap_endpoint_t *local_interface,
                                        const coap_address_t *observer,
-                                       const str *token);
+                                       const str *token, coap_pdu_t *pdu);
 
 /**
  * Returns a subscription object for given @p peer.

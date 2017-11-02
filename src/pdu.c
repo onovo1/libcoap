@@ -153,6 +153,50 @@ coap_delete_pdu(coap_pdu_t *pdu) {
 #endif
 }
 
+
+coap_pdu_t*
+coap_clone_pdu(coap_pdu_t *pdu)
+{
+  coap_pdu_t *cloned_pdu;
+  size_t len = 0;
+  unsigned char *data = NULL;
+  coap_opt_iterator_t opt_iter;
+  coap_opt_t *option;
+
+  //Create a new pdu
+  cloned_pdu = coap_pdu_init(pdu->hdr->type,pdu->hdr->code,pdu->hdr->id,COAP_MAX_PDU_SIZE);
+ 
+  if (!coap_get_token(pdu, &len, &data)) return NULL;
+
+  // Token
+  coap_add_token(cloned_pdu, len, data);
+
+  //Options
+  coap_option_iterator_init(pdu, &opt_iter, NULL);
+
+  while((option = coap_option_next(&opt_iter))) {
+    coap_add_option(cloned_pdu, opt_iter.type, coap_opt_length(option), coap_opt_value(option));
+  }
+
+  // Data
+  if (coap_get_data(pdu, &len, &data)) return NULL;
+
+  coap_add_data(cloned_pdu, len, data);
+
+  return cloned_pdu;
+
+}
+
+int
+coap_get_token(coap_pdu_t *pdu, size_t *len, unsigned char **data) {
+
+  if ((!pdu) && (!pdu->hdr)) return 0;
+  *len = pdu->hdr->token_length;
+  *data = pdu->hdr->token;
+
+  return 1;
+}
+
 int
 coap_add_token(coap_pdu_t *pdu, size_t len, const unsigned char *data) {
   const size_t HEADERLENGTH = len + 4;
